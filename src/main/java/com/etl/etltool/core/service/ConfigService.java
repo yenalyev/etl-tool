@@ -30,10 +30,16 @@ public class ConfigService {
     private AppConfig updateExistingConfig(AppConfig existing, AppConfig incoming) {
         existing.setGoogleSheetId(incoming.getGoogleSheetId());
         existing.setServiceAccountKeyPath(incoming.getServiceAccountKeyPath());
-        existing.setSheetName(incoming.getSheetName()); // ✨ ДОДАЛИ
+        existing.setSheetName(incoming.getSheetName());
         existing.setTargetDbUrl(incoming.getTargetDbUrl());
         existing.setTargetDbUser(incoming.getTargetDbUser());
-        existing.setTargetDbPassword(incoming.getTargetDbPassword());
+
+        // оновлюємо пароль ТІЛЬКИ якщо з форми прийшло нове значення.
+        // Якщо поле пусте (користувач не вводив новий пароль), залишаємо старий, який вже є в базі.
+        if (incoming.getTargetDbPassword() != null && !incoming.getTargetDbPassword().isEmpty()) {
+            existing.setTargetDbPassword(incoming.getTargetDbPassword());
+        }
+
         existing.setDefaultChunkSize(incoming.getDefaultChunkSize());
         existing.setCronExpression(incoming.getCronExpression());
         existing.setAutoStartEnabled(incoming.isAutoStartEnabled());
