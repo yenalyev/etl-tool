@@ -1,4 +1,128 @@
 <div th:fragment="content">
+    <style>
+        /* ============================================ */
+        /* ANIMATIONS */
+        /* ============================================ */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes slide-in-from-bottom {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes slide-out-to-bottom {
+            from { transform: translateY(0); opacity: 1; }
+            to { transform: translateY(100%); opacity: 0; }
+        }
+        @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes fade-out {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        @keyframes slide-in-from-top {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .animate-in { animation-duration: 0.3s; animation-fill-mode: both; }
+        .fade-in { animation-name: fade-in; }
+        .slide-in-from-bottom-4 { animation-name: slide-in-from-bottom; }
+        .slide-in-from-top-2 { animation-name: slide-in-from-top; }
+
+        .animate-out { animation-duration: 0.3s; animation-fill-mode: both; }
+        .fade-out { animation-name: fade-out; }
+        .slide-out-to-bottom-4 { animation-name: slide-out-to-bottom; }
+
+        /* ============================================ */
+        /* MAPPING FIELD STYLES */
+        /* ============================================ */
+        .mapping-input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .skip-indicator {
+            font-size: 10px;
+            transition: all 0.2s ease;
+            font-weight: bold;
+        }
+
+        .skip-btn {
+            opacity: 0.7;
+            min-width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        .skip-btn:hover {
+            opacity: 1;
+            background-color: #ef4444 !important;
+            color: white;
+        }
+
+        /* Smooth transitions for skip states */
+        .opacity-50 {
+            opacity: 0.5;
+            transition: opacity 0.2s ease;
+        }
+
+        /* Placeholder styling */
+        .mapping-input::placeholder {
+            color: #64748b;
+            font-style: italic;
+        }
+
+        /* ============================================ */
+        /* VALIDATION STYLES */
+        /* ============================================ */
+        .mapping-input.error {
+            border: 2px solid #ef4444 !important;
+            background-color: rgba(239, 68, 68, 0.1) !important;
+        }
+
+        .mapping-input.error:focus {
+            ring-color: #ef4444 !important;
+        }
+
+        .error-message {
+            color: #ef4444;
+            font-size: 10px;
+            margin-top: 2px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-weight: 600;
+        }
+
+        .mapping-row.has-error {
+            border-color: #ef4444 !important;
+            background-color: rgba(239, 68, 68, 0.05);
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        .shake {
+            animation: shake 0.3s;
+        }
+    </style>
+
     <div class="max-w-4xl mx-auto">
         <header class="mb-10">
             <h2 class="text-2xl font-bold text-blue-400">System Configuration</h2>
@@ -81,6 +205,7 @@
                     <div class="md:col-span-2">
                         <label class="block text-sm text-gray-400 mb-2 font-medium">JDBC Connection URL</label>
                         <input type="text" th:field="*{targetDbUrl}" id="targetDbUrl"
+                               placeholder="jdbc:postgresql://localhost:5432/mydb"
                                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 outline-none transition-all text-gray-200">
                     </div>
                     <div>
@@ -164,14 +289,24 @@
                         <div id="createContainer" class="hidden">
                             <label class="block text-sm text-gray-400 mb-2 font-medium">Назва нової таблиці</label>
                             <input type="text" id="newTableNameInput" oninput="syncTableName(this.value)"
+                                   placeholder="my_table_name"
                                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-purple-500 transition-all">
                         </div>
                     </div>
 
                     <div id="mappingSection" class="hidden mt-8 pt-8 border-t border-slate-700 border-dashed animate-in fade-in slide-in-from-top-4">
-                        <h2 class="text-xl font-bold mb-6 text-orange-400 flex items-center gap-3">
-                            <span class="p-2 bg-orange-900/30 rounded-lg text-sm">🔗</span> Field Mapping
-                        </h2>
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-xl font-bold text-orange-400 flex items-center gap-3">
+                                <span class="p-2 bg-orange-900/30 rounded-lg text-sm">🔗</span> Field Mapping
+                            </h2>
+                            <div class="flex items-center gap-4">
+                                <div id="duplicateWarning" class="hidden text-xs text-red-400 font-bold flex items-center gap-2 animate-in fade-in">
+                                    <span>⚠️</span>
+                                    <span>Знайдено дублі колонок!</span>
+                                </div>
+                                <div id="mappingStats" class="text-xs text-slate-500"></div>
+                            </div>
+                        </div>
                         <div id="mappingContainer" class="space-y-3"></div>
                     </div>
                 </div>
@@ -183,7 +318,7 @@
             <div class="flex justify-end pt-4">
                 <button type="submit" id="submitBtn"
                         th:text="${not #strings.isEmpty(config.targetTableName)} ? 'Save Changes' : 'Save Configuration'"
-                        class="px-12 py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl font-black shadow-lg uppercase tracking-widest transition-all">
+                        class="px-12 py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl font-black shadow-lg uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                     Save Configuration
                 </button>
             </div>
@@ -205,7 +340,9 @@
             LOADING_ERROR: '❌ Помилка завантаження',
             FILL_ALL_FIELDS: '⚠️ Заповніть всі поля',
             SPECIFY_CREDENTIALS: '⚠️ Спочатку вкажіть Sheet ID та JSON ключ',
-            SELECT_JSON: '⚠️ Оберіть JSON файл з credentials'
+            SELECT_JSON: '⚠️ Оберіть JSON файл з credentials',
+            DUPLICATE_COLUMNS: '⚠️ Знайдено дублі назв колонок',
+            EMPTY_COLUMN_NAME: 'Назва не може бути порожньою'
         };
 
         // ============================================
@@ -213,6 +350,7 @@
         // ============================================
         let isLoadingSheets = false;
         let isRefreshingMapping = false;
+        let hasDuplicates = false;
 
         const hasSavedConfig = /*[[${not #strings.isEmpty(config.targetTableName)}]]*/ false;
 
@@ -248,7 +386,6 @@
 
             if (!jsonField || !container || !readOnlyMode) return;
 
-            // Show selected sheet info
             const sheetName = /*[[${config.sheetName}]]*/ null;
             if (sheetName) {
                 const existingInfo = readOnlyMode.querySelector('.sheet-info');
@@ -267,7 +404,6 @@
                 }
             }
 
-            // Render mapping
             try {
                 const mappings = JSON.parse(jsonField.value || '[]');
                 if (mappings.length === 0) {
@@ -573,7 +709,6 @@
             if (mappingSection) mappingSection.classList.remove('hidden');
             if (container) container.innerHTML = `<div class="text-blue-400 animate-pulse text-center p-4">${MESSAGES.LOADING}</div>`;
 
-            // Save existing mapping
             const existingMappingRaw = document.getElementById('fieldMappingJson')?.value;
             let existingMapping = {};
             if (existingMappingRaw) {
@@ -617,37 +752,73 @@
 
                     headers.forEach(header => {
                         const row = document.createElement('div');
-                        row.className = "flex items-center gap-4 bg-gray-900/40 p-3 rounded-xl border border-slate-700/50";
+                        row.className = "mapping-row flex items-start gap-4 bg-gray-900/40 p-3 rounded-xl border border-slate-700/50 transition-all hover:border-slate-600";
 
                         const savedTarget = existingMapping[header] || '';
+                        const isSkipped = isCreate && !savedTarget;
+                        const defaultValue = isCreate ? transliterate(header) : '';
 
                         let targetHtml = isCreate
-                            ? `<input type="text" value="${escapeHtml(savedTarget || transliterate(header))}"
-                                      class="mapping-input flex-1 bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-orange-300"
-                                      data-source="${escapeHtml(header)}"
-                                      placeholder="назва_колонки">`
-                            : `<select class="mapping-input flex-1 bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-green-300"
-                                       data-source="${escapeHtml(header)}">
-                                <option value="">-- Пропустити --</option>
-                                ${dbColumns.map(col =>
+                            ? `<div class="flex-1 flex flex-col gap-1">
+                                   <div class="flex gap-2 items-center">
+                                       <input type="text"
+                                              value="${escapeHtml(savedTarget || defaultValue)}"
+                                              placeholder="column_name"
+                                              class="mapping-input flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-orange-300 placeholder:text-slate-600 focus:ring-2 focus:ring-orange-500 transition-all"
+                                              data-source="${escapeHtml(header)}"
+                                              oninput="handleMappingInput(this)"
+                                              title="Введіть назву колонки або залиште порожнім для пропуску">
+                                       <button type="button"
+                                               onclick="clearMappingInput(this)"
+                                               class="skip-btn px-2 py-1 bg-slate-700 hover:bg-red-600 rounded text-xs transition-all"
+                                               title="Пропустити це поле">
+                                           ✕
+                                       </button>
+                                   </div>
+                                   <div class="error-message hidden"></div>
+                               </div>`
+                            : `<div class="flex-1">
+                                   <select class="mapping-input w-full bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-green-300 focus:ring-2 focus:ring-green-500 transition-all"
+                                           data-source="${escapeHtml(header)}">
+                                       <option value="">-- Пропустити --</option>
+                                       ${dbColumns.map(col =>
                                 `<option value="${escapeHtml(col)}" ${savedTarget === col ? 'selected' : ''}>${escapeHtml(col)}</option>`
                             ).join('')}
-                            </select>`;
+                                   </select>
+                               </div>`;
+
+                        if (isSkipped) {
+                            row.classList.add('opacity-50');
+                        }
 
                         row.innerHTML = `
-                            <div class="w-1/3 text-xs text-slate-400 truncate" title="${escapeHtml(header)}">${escapeHtml(header)}</div>
-                            <div class="text-slate-700">➔</div>
+                            <div class="w-1/3 text-xs text-slate-400 truncate flex items-center gap-2 pt-1" title="${escapeHtml(header)}">
+                                <span class="skip-indicator ${isSkipped ? 'text-slate-600' : 'text-orange-400'}">${isSkipped ? '⊘' : '●'}</span>
+                                <span>${escapeHtml(header)}</span>
+                            </div>
+                            <div class="text-slate-700 pt-1">➔</div>
                             ${targetHtml}
                         `;
 
                         container.appendChild(row);
                     });
 
-                    container.querySelectorAll('.mapping-input').forEach(el =>
-                        el.addEventListener('change', updateMappingJson)
-                    );
+                    container.querySelectorAll('.mapping-input').forEach(el => {
+                        el.addEventListener('change', () => {
+                            updateMappingJson();
+                            validateDuplicateColumns();
+                        });
+                        if (el.tagName === 'INPUT') {
+                            el.addEventListener('input', () => {
+                                updateMappingJson();
+                                validateDuplicateColumns();
+                            });
+                        }
+                    });
 
                     updateMappingJson();
+                    validateDuplicateColumns();
+                    updateMappingStats();
                 }
             } catch (e) {
                 console.error('Error refreshing mapping:', e);
@@ -659,18 +830,194 @@
             }
         }
 
+        function handleMappingInput(input) {
+            // Sanitize input in real-time
+            let value = input.value;
+
+            // Replace spaces with underscores
+            value = value.replace(/\s+/g, '_');
+
+            // Remove invalid characters (only allow alphanumeric and underscore)
+            value = value.replace(/[^a-zA-Z0-9_]/g, '');
+
+            // Ensure it doesn't start with a number
+            if (value.length > 0 && /^\d/.test(value)) {
+                value = '_' + value;
+            }
+
+            // Update input if value changed
+            if (input.value !== value) {
+                const cursorPos = input.selectionStart;
+                input.value = value;
+                input.setSelectionRange(cursorPos, cursorPos);
+            }
+
+            toggleSkipIndicator(input);
+            updateMappingJson();
+            validateDuplicateColumns();
+        }
+
+        function validateDuplicateColumns() {
+            const isCreate = document.getElementById('createNewTable')?.value === 'true';
+            if (!isCreate) {
+                hasDuplicates = false;
+                updateSubmitButton();
+                return;
+            }
+
+            const inputs = document.querySelectorAll('input.mapping-input');
+            const columnNames = new Map();
+            const duplicates = new Set();
+
+            // Clear previous errors
+            inputs.forEach(input => {
+                input.classList.remove('error');
+                const row = input.closest('.mapping-row');
+                if (row) {
+                    row.classList.remove('has-error');
+                    const errorMsg = row.querySelector('.error-message');
+                    if (errorMsg) errorMsg.classList.add('hidden');
+                }
+            });
+
+            // Find duplicates
+            inputs.forEach(input => {
+                const value = input.value.trim().toLowerCase();
+                if (value) {
+                    if (columnNames.has(value)) {
+                        duplicates.add(value);
+                    } else {
+                        columnNames.set(value, input);
+                    }
+                }
+            });
+
+            // Mark duplicates
+            hasDuplicates = duplicates.size > 0;
+
+            if (hasDuplicates) {
+                inputs.forEach(input => {
+                    const value = input.value.trim().toLowerCase();
+                    if (duplicates.has(value)) {
+                        input.classList.add('error');
+                        const row = input.closest('.mapping-row');
+                        if (row) {
+                            row.classList.add('has-error', 'shake');
+                            setTimeout(() => row.classList.remove('shake'), 300);
+
+                            const errorMsg = row.querySelector('.error-message');
+                            if (errorMsg) {
+                                errorMsg.innerHTML = '<span>⚠️</span><span>Дублікат: змініть назву</span>';
+                                errorMsg.classList.remove('hidden');
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Update warning banner
+            const warningEl = document.getElementById('duplicateWarning');
+            if (warningEl) {
+                if (hasDuplicates) {
+                    warningEl.classList.remove('hidden');
+                } else {
+                    warningEl.classList.add('hidden');
+                }
+            }
+
+            updateSubmitButton();
+        }
+
+        function updateSubmitButton() {
+            const submitBtn = document.getElementById('submitBtn');
+            if (submitBtn) {
+                submitBtn.disabled = hasDuplicates;
+                if (hasDuplicates) {
+                    submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    submitBtn.title = 'Виправте помилки перед збереженням';
+                } else {
+                    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    submitBtn.title = '';
+                }
+            }
+        }
+
         function updateMappingJson() {
             const mappings = [];
             document.querySelectorAll('.mapping-input').forEach(el => {
-                if (el.value) {
+                const value = el.value ? el.value.trim() : '';
+                if (value) {
                     mappings.push({
                         sourceHeader: el.getAttribute('data-source'),
-                        targetColumn: el.value
+                        targetColumn: value
                     });
                 }
             });
             const jsonField = document.getElementById('fieldMappingJson');
             if (jsonField) jsonField.value = JSON.stringify(mappings);
+
+            updateMappingStats();
+        }
+
+        function updateMappingStats() {
+            const statsEl = document.getElementById('mappingStats');
+            if (!statsEl) return;
+
+            const totalFields = document.querySelectorAll('.mapping-input').length;
+            const mappedFields = Array.from(document.querySelectorAll('.mapping-input'))
+                .filter(el => el.value && el.value.trim() !== '').length;
+            const skippedFields = totalFields - mappedFields;
+
+            if (totalFields > 0) {
+                statsEl.innerHTML = `
+                    <span class="text-orange-400">● ${mappedFields} mapped</span>
+                    <span class="text-slate-600 mx-2">|</span>
+                    <span class="text-slate-600">⊘ ${skippedFields} skipped</span>
+                `;
+            } else {
+                statsEl.innerHTML = '';
+            }
+        }
+
+        // ============================================
+        // MAPPING HELPERS
+        // ============================================
+        function clearMappingInput(button) {
+            const row = button.closest('.mapping-row');
+            const input = row.querySelector('input.mapping-input');
+
+            if (input) {
+                input.value = '';
+                input.classList.remove('error');
+                row.classList.remove('has-error');
+                const errorMsg = row.querySelector('.error-message');
+                if (errorMsg) errorMsg.classList.add('hidden');
+
+                toggleSkipIndicator(input);
+                updateMappingJson();
+                validateDuplicateColumns();
+            }
+        }
+
+        function toggleSkipIndicator(input) {
+            const row = input.closest('.mapping-row');
+            const indicator = row.querySelector('.skip-indicator');
+
+            if (input.value.trim() === '') {
+                row.classList.add('opacity-50');
+                if (indicator) {
+                    indicator.textContent = '⊘';
+                    indicator.classList.remove('text-orange-400');
+                    indicator.classList.add('text-slate-600');
+                }
+            } else {
+                row.classList.remove('opacity-50');
+                if (indicator) {
+                    indicator.textContent = '●';
+                    indicator.classList.remove('text-slate-600');
+                    indicator.classList.add('text-orange-400');
+                }
+            }
         }
 
         // ============================================
@@ -845,11 +1192,16 @@
             try {
                 const mappings = JSON.parse(mapping || '[]');
                 if (mappings.length === 0) {
-                    showToast('❌ Налаштуйте field mapping', 'error');
+                    showToast('❌ Налаштуйте field mapping (мінімум 1 поле)', 'error');
                     return false;
                 }
             } catch (e) {
                 showToast('❌ Помилка в field mapping', 'error');
+                return false;
+            }
+
+            if (hasDuplicates) {
+                showToast('❌ Виправте дублі назв колонок', 'error');
                 return false;
             }
 
@@ -873,7 +1225,8 @@
                 .map(char => ua[char] || char)
                 .join('')
                 .replace(/[^a-z0-9_]/g, '_')
-                .replace(/_{2,}/g, '_');
+                .replace(/_{2,}/g, '_')
+                .replace(/^(\d)/, '_$1'); // Ensure doesn't start with number
         }
 
         function escapeHtml(text) {
