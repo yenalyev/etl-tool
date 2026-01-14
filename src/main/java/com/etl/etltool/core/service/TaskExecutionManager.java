@@ -65,7 +65,7 @@ public class TaskExecutionManager {
         }
     }
 
-    public void updateProgress(Long taskId, int count) {
+    public void updateProgress(Long taskId, long count) {
         ExecutionState state = taskStates.get(taskId);
         if (state != null) {
             state.setRowsProcessed(count);

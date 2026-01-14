@@ -5,21 +5,27 @@ spring:
   datasource:
     url: jdbc:sqlite:${user.home}/.etl/metadata.db
     driver-class-name: org.sqlite.JDBC
-    # HikariCP (пул з'єднань) для SQLite краще обмежити одним з'єднанням
     hikari:
-      maximum-pool-size: 1
+      maximum-pool-size: 10  # ✅ Збільшено для Spring Batch
 
   jpa:
     hibernate:
       ddl-auto: update
     database-platform: org.hibernate.community.dialect.SQLiteDialect
-    show-sql: true
+    show-sql: false  # ✅ Вимкнено для batch (багато SQL)
 
   batch:
     jdbc:
-      initialize-schema: always
+      initialize-schema: always  # ✅ Створить Spring Batch таблиці
     job:
-      enabled: false # Щоб Batch не намагався запускати Job при кожному старті аплікації
+      enabled: false  # ✅ Не автостарт - керуємо вручну через API
 
 server:
   port: 8081
+
+# Налаштування логування
+logging:
+  level:
+    com.etl.etltool: INFO
+    org.springframework.batch: INFO
+    org.hibernate: WARN

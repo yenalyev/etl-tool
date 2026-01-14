@@ -11,7 +11,7 @@ public class ExecutionState {
     private volatile boolean running;
     private volatile boolean finished;
     private volatile boolean success;
-    private volatile int rowsProcessed;
+    private volatile long rowsProcessed;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
 

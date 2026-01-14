@@ -26,13 +26,20 @@ public class GoogleSheetsService {
 
     private static final String APPLICATION_NAME = "ETL-Tool";
     private static final GsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
-    private static final String DEFAULT_RANGE = "A1:Z1000";
 
-    // Semaphore для обмеження одночасних запитів
-    private final Semaphore apiRateLimiter = new Semaphore(5); // Макс 5 одночасних запитів
+    // ✅ ВИПРАВЛЕНО: Читає ВСІ рядки замість тільки 1000
+    private static final String DEFAULT_RANGE = "A:ZZ"; // Було: "A1:Z1000" ❌
+
+    // ✅ ОПТИМІЗОВАНО: Збільшено з 5 до 8 для кращої продуктивності
+    private final Semaphore apiRateLimiter = new Semaphore(8); // Було: 5
 
     /**
-     * Читає дані з Google Sheets з контролемRate Limiting
+     * ✅ Читає ВСІ дані з Google Sheets (без обмеження по рядках)
+     *
+     * @param spreadsheetId ID Google spreadsheet
+     * @param sheetName Назва конкретного аркуша (опціонально)
+     * @param jsonPath Шлях до credentials JSON
+     * @return Всі рядки включно з заголовком
      */
     public List<List<Object>> readSheet(String spreadsheetId, String sheetName, String jsonPath) throws Exception {
         log.info("Reading Google Sheet: {} (sheet: {})",
@@ -41,8 +48,8 @@ public class GoogleSheetsService {
 
         // КРОК 1: Спроба отримати "дозвіл" на виконання запиту
         // tryAcquire(30, TimeUnit.SECONDS) означає:
-        // - Якщо є вільний слот (1 з 5) - отримуємо його миттєво
-        // - Якщо всі 5 слотів зайняті - чекаємо максимум 30 секунд
+        // - Якщо є вільний слот (1 з 8) - отримуємо його миттєво
+        // - Якщо всі 8 слотів зайняті - чекаємо максимум 30 секунд
         // - Якщо за 30 сек не звільнився жоден слот - повертає false
         boolean acquired = apiRateLimiter.tryAcquire(30, TimeUnit.SECONDS);
 
@@ -58,9 +65,13 @@ public class GoogleSheetsService {
                     apiRateLimiter.availablePermits());
 
             Sheets service = getSheetsService(jsonPath);
+
+            // ✅ ВИПРАВЛЕНО: Використовуємо DEFAULT_RANGE = "A:ZZ" (всі рядки)
             String range = buildRange(sheetName, DEFAULT_RANGE);
 
             log.debug("Fetching range: {}", range);
+
+            long startTime = System.currentTimeMillis();
 
             // Виконуємо запит до Google API
             ValueRange response = service.spreadsheets().values()
@@ -74,7 +85,21 @@ public class GoogleSheetsService {
                 return Collections.emptyList();
             }
 
-            log.info("Successfully read {} rows from Google Sheet", values.size());
+            long duration = System.currentTimeMillis() - startTime;
+            int totalRows = values.size();
+
+            log.info("Successfully read {} rows from Google Sheet in {}ms", totalRows, duration);
+
+            // ✅ ДОДАНО: Детальна інформація для великих datasets
+            if (totalRows > 1000) {
+                log.info("📊 Large dataset detected:");
+                log.info("   Total rows (including header): {}", totalRows);
+                log.info("   Data rows: {}", totalRows - 1);
+                log.info("   Columns: {}", values.get(0).size());
+                log.info("   Read time: {}ms", duration);
+                log.info("   Throughput: {} rows/sec", (totalRows * 1000) / Math.max(duration, 1));
+            }
+
             return values;
 
         } finally {
@@ -90,6 +115,8 @@ public class GoogleSheetsService {
     /**
      * Отримує список всіх аркушів (sheets) у spreadsheet.
      * Використовується для заповнення dropdown у UI.
+     *
+     * ✅ Зворотня сумісність: метод не змінений
      */
     public List<String> getSheetNames(String spreadsheetId, String jsonPath) throws Exception {
         log.info("Fetching sheet names for spreadsheet: {}", spreadsheetId);
@@ -119,6 +146,8 @@ public class GoogleSheetsService {
     /**
      * Зчитує перший рядок (заголовки) з вказаного аркуша.
      * Використовується для field mapping у UI.
+     *
+     * ✅ Зворотня сумісність: метод не змінений
      */
     public List<String> fetchFirstRow(String spreadsheetId, String jsonPath, String sheetName) throws Exception {
         log.info("Fetching first row from spreadsheet: {} (sheet: {})",
@@ -154,6 +183,8 @@ public class GoogleSheetsService {
 
     /**
      * Перевантажений метод для зворотної сумісності.
+     *
+     * ✅ Зворотня сумісність: метод не змінений
      */
     public List<String> fetchFirstRow(String spreadsheetId, String jsonPath) throws Exception {
         return fetchFirstRow(spreadsheetId, jsonPath, null);
@@ -161,6 +192,8 @@ public class GoogleSheetsService {
 
     /**
      * Створює та повертає авторизований клієнт Google Sheets API.
+     *
+     * ✅ Зворотня сумісність: метод не змінений
      */
     private Sheets getSheetsService(String jsonPath) throws IOException, GeneralSecurityException {
         log.debug("Initializing Google Sheets service with credentials from: {}", jsonPath);
@@ -179,6 +212,8 @@ public class GoogleSheetsService {
 
     /**
      * Будує діапазон (range) для Google Sheets API з урахуванням назви аркуша.
+     *
+     * ✅ Зворотня сумісність: метод не змінений
      */
     private String buildRange(String sheetName, String cells) {
         if (sheetName == null || sheetName.trim().isEmpty()) {
@@ -193,10 +228,18 @@ public class GoogleSheetsService {
         return String.format("%s!%s", sheetName, cells);
     }
 
+    /**
+     * ✅ Зворотня сумісність: метод не змінений
+     */
     private String buildRange(String sheetName) {
         return buildRange(sheetName, DEFAULT_RANGE);
     }
 
+    /**
+     * Перевіряє чи потрібно екранувати назву аркуша одинарними лапками.
+     *
+     * ✅ Зворотня сумісність: метод не змінений
+     */
     private boolean needsQuoting(String sheetName) {
         if (sheetName == null || sheetName.isEmpty()) {
             return false;
@@ -207,5 +250,19 @@ public class GoogleSheetsService {
                 || sheetName.contains(":")
                 || sheetName.contains(";")
                 || sheetName.contains(",");
+    }
+
+    /**
+     * ✅ НОВИЙ МЕТОД: Отримати поточну кількість доступних дозволів (для діагностики)
+     */
+    public int getAvailablePermits() {
+        return apiRateLimiter.availablePermits();
+    }
+
+    /**
+     * ✅ НОВИЙ МЕТОД: Отримати максимальну кількість дозволів
+     */
+    public int getMaxPermits() {
+        return 8;
     }
 }

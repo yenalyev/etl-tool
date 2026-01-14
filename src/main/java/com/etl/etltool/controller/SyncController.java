@@ -1,6 +1,6 @@
 package com.etl.etltool.controller;
 
-import com.etl.etltool.core.service.SyncService;
+import com.etl.etltool.core.service.BatchSyncService;
 import com.etl.etltool.core.service.TaskExecutionManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,55 +13,61 @@ import java.util.Map;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/sync") // Базовий шлях
+@RequestMapping("/api/sync")
 @RequiredArgsConstructor
 public class SyncController {
 
-    private final SyncService syncService;
+    private final BatchSyncService batchSyncService; // ✅ Замінено на Batch
     private final TaskExecutionManager executionManager;
 
-    // Запуск ВСІХ задач
+    /**
+     * Запуск ВСІХ активних задач
+     */
     @PostMapping("/run")
     public ResponseEntity<?> runAllSyncs() {
-        log.info("Запуск всіх задач...");
-        syncService.runAllActiveTasks();
-        return ResponseEntity.ok(Map.of("message", "All tasks started async"));
+        log.info("📢 API: Starting all active tasks...");
+        batchSyncService.runAllActiveTasks();
+        return ResponseEntity.ok(Map.of("message", "All active tasks started"));
     }
 
-    // Запуск ОДНІЄЇ задачі
-    @PostMapping("/run/{taskId}")
-    public ResponseEntity<?> runTaskApi(@PathVariable Long taskId) {
-        log.info("Запуск задачі ID: {}", taskId);
-        // 1. Ініціалізуємо статус в менеджері
-        executionManager.initTask(taskId);
-        // 2. Запускаємо асинхронно (метод повертає управління миттєво)
-        syncService.runTaskAsync(taskId);
-
-        return ResponseEntity.ok(Map.of("message", "Started", "taskId", taskId));
-    }
-
-
-    // Метод нічого не повертає по суті (void логіка), тільки "ОК"
+    /**
+     * Запуск ОДНІЄЇ задачі
+     */
     @PostMapping("/start/{taskId}")
     public ResponseEntity<?> startTask(@PathVariable Long taskId) {
+        log.info("📢 API: Start task request for ID: {}", taskId);
+
         try {
-            // Перевіряємо, чи задача вже не виконується
+            // Перевірка чи задача вже не виконується
             if (!executionManager.initTask(taskId)) {
                 return ResponseEntity.status(409).body(
                         Map.of("error", "Task is already running")
                 );
             }
 
-            syncService.runTaskAsync(taskId);
-            return ResponseEntity.ok(Map.of("message", "Task started", "taskId", taskId));
+            // Запускаємо асинхронно через Spring Batch
+            batchSyncService.runTaskAsync(taskId);
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Task started",
+                    "taskId", taskId
+            ));
+
         } catch (Exception e) {
-            log.error("Failed to start task", e);
-            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+            log.error("❌ Failed to start task: {}", taskId, e);
+            return ResponseEntity.status(500).body(
+                    Map.of("error", e.getMessage())
+            );
         }
     }
 
+    /**
+     * SSE Stream для real-time логів
+     * ✅ Залишається без змін - працює з TaskExecutionManager
+     */
     @GetMapping(value = "/stream/{taskId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamLogs(@PathVariable Long taskId) {
+        log.info("📡 SSE: Client connected for task: {}", taskId);
         return executionManager.subscribe(taskId);
     }
 }
