@@ -6,14 +6,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller; // Можна замінити на @RestController для API
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 
 @Slf4j
-@RestController // Краще використовувати RestController для API методів
+@RestController
 @RequestMapping("/api/sync") // Базовий шлях
 @RequiredArgsConstructor
 public class SyncController {
@@ -45,14 +44,15 @@ public class SyncController {
     // Метод нічого не повертає по суті (void логіка), тільки "ОК"
     @PostMapping("/start/{taskId}")
     public ResponseEntity<?> startTask(@PathVariable Long taskId) {
-        log.info("API request: Start task {}", taskId);
         try {
-            // Ініціалізуємо статус в менеджері (щоб SSE мав що показувати)
-            executionManager.initTask(taskId);
+            // Перевіряємо, чи задача вже не виконується
+            if (!executionManager.initTask(taskId)) {
+                return ResponseEntity.status(409).body(
+                        Map.of("error", "Task is already running")
+                );
+            }
 
-            // Запускаємо асинхронно (метод поверне управління миттєво)
             syncService.runTaskAsync(taskId);
-
             return ResponseEntity.ok(Map.of("message", "Task started", "taskId", taskId));
         } catch (Exception e) {
             log.error("Failed to start task", e);

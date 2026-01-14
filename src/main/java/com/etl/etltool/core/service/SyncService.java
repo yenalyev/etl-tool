@@ -38,14 +38,15 @@ public class SyncService {
         }
     }
 
-    // Основний метод. @Async змушує його виконуватись у фоновому потоці.
+    // Main method for working
     @Async("etlTaskExecutor")
     public void runTaskAsync(Long taskId) {
         String threadName = Thread.currentThread().getName();
         log.info("Async start task {} on {}", taskId, threadName);
-        executionManager.log(taskId, "🚀 Старт обробки (Потік: " + threadName + ")");
 
         try {
+            executionManager.log(taskId, "🚀 Старт обробки (Потік: " + threadName + ")");
+
             AppConfig globalConfig = configService.getConfig();
             SyncTask task = taskService.getTask(taskId);
 
@@ -66,7 +67,7 @@ public class SyncService {
 
             executionManager.log(taskId, "📥 Отримано рядків: " + rawData.size());
 
-            // 2. Конвертація (Ваш метод без змін)
+            // 2. Конвертація
             SheetData processedData = convertToSheetData(rawData);
 
             // 3. Запис
@@ -88,8 +89,14 @@ public class SyncService {
             executionManager.finish(taskId, true, "Успішно імпортовано " + count + " записів.");
 
         } catch (Exception e) {
-            log.error("Task failed", e);
+            log.error("Task {} failed with exception", taskId, e);
+            executionManager.log(taskId, "❌ Помилка: " + e.getClass().getSimpleName());
+            executionManager.log(taskId, "💬 " + e.getMessage());
             executionManager.finish(taskId, false, "Помилка: " + e.getMessage());
+        } catch (Throwable t) {
+            // ✅ Ловимо навіть Error (OutOfMemoryError, StackOverflowError тощо)
+            log.error("Task {} failed with critical error", taskId, t);
+            executionManager.finish(taskId, false, "Критична помилка: " + t.getMessage());
         }
     }
 

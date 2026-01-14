@@ -16,6 +16,8 @@ import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -26,40 +28,63 @@ public class GoogleSheetsService {
     private static final GsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
     private static final String DEFAULT_RANGE = "A1:Z1000";
 
+    // Semaphore для обмеження одночасних запитів
+    private final Semaphore apiRateLimiter = new Semaphore(5); // Макс 5 одночасних запитів
+
     /**
-     * Основний метод для читання даних з Google Sheets.
-     * приймає конкретні параметри замість AppConfig,
-     * оскільки дані розділені між AppConfig (jsonPath) та SyncTask (sheetId, sheetName).
-     *
-     * @param spreadsheetId ID Google таблиці (з SyncTask)
-     * @param sheetName Назва аркуша (з SyncTask)
-     * @param jsonPath Шлях до файлу ключів (з AppConfig)
+     * Читає дані з Google Sheets з контролемRate Limiting
      */
     public List<List<Object>> readSheet(String spreadsheetId, String sheetName, String jsonPath) throws Exception {
         log.info("Reading Google Sheet: {} (sheet: {})",
                 spreadsheetId,
                 sheetName != null ? sheetName : "default");
 
-        Sheets service = getSheetsService(jsonPath);
+        // КРОК 1: Спроба отримати "дозвіл" на виконання запиту
+        // tryAcquire(30, TimeUnit.SECONDS) означає:
+        // - Якщо є вільний слот (1 з 5) - отримуємо його миттєво
+        // - Якщо всі 5 слотів зайняті - чекаємо максимум 30 секунд
+        // - Якщо за 30 сек не звільнився жоден слот - повертає false
+        boolean acquired = apiRateLimiter.tryAcquire(30, TimeUnit.SECONDS);
 
-        // Формуємо діапазон з урахуванням назви аркуша
-        String range = buildRange(sheetName, DEFAULT_RANGE);
-
-        log.debug("Fetching range: {}", range);
-
-        ValueRange response = service.spreadsheets().values()
-                .get(spreadsheetId, range)
-                .execute();
-
-        List<List<Object>> values = response.getValues();
-
-        if (values == null || values.isEmpty()) {
-            log.warn("No data found in spreadsheet");
-            return Collections.emptyList();
+        if (!acquired) {
+            // Таймаут - не змогли отримати дозвіл за 30 секунд
+            log.error("Failed to acquire API rate limiter permit within 30 seconds for sheet: {}", spreadsheetId);
+            throw new RuntimeException("Google API rate limiter timeout - too many concurrent requests");
         }
 
-        log.info("Successfully read {} rows from Google Sheet", values.size());
-        return values;
+        try {
+            // КРОК 2: Ми отримали дозвіл - можемо виконувати запит
+            log.debug("Acquired API rate limiter permit. Available permits: {}",
+                    apiRateLimiter.availablePermits());
+
+            Sheets service = getSheetsService(jsonPath);
+            String range = buildRange(sheetName, DEFAULT_RANGE);
+
+            log.debug("Fetching range: {}", range);
+
+            // Виконуємо запит до Google API
+            ValueRange response = service.spreadsheets().values()
+                    .get(spreadsheetId, range)
+                    .execute();
+
+            List<List<Object>> values = response.getValues();
+
+            if (values == null || values.isEmpty()) {
+                log.warn("No data found in spreadsheet");
+                return Collections.emptyList();
+            }
+
+            log.info("Successfully read {} rows from Google Sheet", values.size());
+            return values;
+
+        } finally {
+            // КРОК 3: ЗАВЖДИ звільняємо дозвіл
+            // finally гарантує виконання навіть при exception
+            // Це критично важливо! Без release() семафор "застряне"
+            apiRateLimiter.release();
+            log.debug("Released API rate limiter permit. Available permits: {}",
+                    apiRateLimiter.availablePermits());
+        }
     }
 
     /**

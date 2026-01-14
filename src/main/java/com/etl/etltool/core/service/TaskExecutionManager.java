@@ -2,6 +2,7 @@ package com.etl.etltool.core.service;
 
 import com.etl.etltool.dto.ExecutionState;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -17,12 +18,21 @@ public class TaskExecutionManager {
     private final Map<Long, ExecutionState> taskStates = new ConcurrentHashMap<>();
     private final Map<Long, SseEmitter> emitters = new ConcurrentHashMap<>();
 
-    public void initTask(Long taskId) {
-        ExecutionState state = new ExecutionState();
-        state.setRunning(true);
-        state.setStartTime(LocalDateTime.now());
-        state.addLog("⏳ Задача поставлена в чергу...");
-        taskStates.put(taskId, state);
+    public boolean initTask(Long taskId) {
+        ExecutionState newState = new ExecutionState();
+        newState.setRunning(true);
+        newState.setStartTime(LocalDateTime.now());
+        newState.addLog("⏳ Задача поставлена в чергу...");
+
+        // Атомарна операція: повертає попереднє значення
+        ExecutionState prev = taskStates.putIfAbsent(taskId, newState);
+
+        if (prev != null && prev.isRunning()) {
+            log.warn("Task {} is already running!", taskId);
+            return false; // Задача вже виконується
+        }
+
+        return true;
     }
 
     public SseEmitter subscribe(Long taskId) {
@@ -84,13 +94,37 @@ public class TaskExecutionManager {
     }
 
     private void sendEvent(Long taskId, String name, Object data) {
+        // ✅ Атомарно отримуємо і видаляємо при помилці
         SseEmitter emitter = emitters.get(taskId);
         if (emitter != null) {
             try {
-                emitter.send(SseEmitter.event().name(name).data(data));
-            } catch (IOException e) {
+                synchronized (emitter) { // Синхронізація на emitter
+                    emitter.send(SseEmitter.event().name(name).data(data));
+                }
+            } catch (IOException | IllegalStateException e) {
+                log.warn("Failed to send SSE event to task {}: {}", taskId, e.getMessage());
                 emitters.remove(taskId);
+
+                // Пробуємо закрити emitter коректно
+                try {
+                    emitter.completeWithError(e);
+                } catch (Exception ignored) {}
             }
         }
+    }
+
+    // Автоматичне очищення старих станів
+    @Scheduled(fixedDelay = 3600000) // Кожну годину
+    public void cleanupOldStates() {
+        LocalDateTime threshold = LocalDateTime.now().minusHours(24);
+
+        taskStates.entrySet().removeIf(entry -> {
+            ExecutionState state = entry.getValue();
+            return state.isFinished() &&
+                    state.getEndTime() != null &&
+                    state.getEndTime().isBefore(threshold);
+        });
+
+        log.info("Cleaned up old task states. Remaining: {}", taskStates.size());
     }
 }
