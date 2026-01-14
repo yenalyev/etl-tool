@@ -1,117 +1,117 @@
 package com.etl.etltool.core.service;
 
 import com.etl.etltool.core.entity.AppConfig;
+import com.etl.etltool.core.entity.SyncTask;
 import com.etl.etltool.core.service.google.GoogleSheetsService;
-import com.etl.etltool.dto.FieldMap;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.etl.etltool.model.SheetData;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import javax.sql.DataSource;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-@Slf4j
 @RequiredArgsConstructor
+@Slf4j
 public class SyncService {
 
+    private final ConfigService configService;
+    private final TaskService taskService;
     private final GoogleSheetsService googleSheetsService;
-    private final ObjectMapper objectMapper; // Додаємо Jackson для JSON
+    private final DatabaseService databaseService;
+    private final TaskExecutionManager executionManager; // Додано
 
-    public int runSync(AppConfig config) throws Exception {
-        // 1. EXTRACT
-        List<List<Object>> rawData = googleSheetsService.readSheet(config);
-        if (rawData == null || rawData.isEmpty()) {
-            throw new RuntimeException("Google Sheet порожній або недоступний.");
+    // Запуск ВСІХ задач (проходить циклом і запускає кожну в окремому потоці)
+    public void runAllActiveTasks() {
+        List<SyncTask> tasks = taskService.getAllActiveTasks();
+        if (tasks.isEmpty()) {
+            log.info("Немає активних задач.");
+            return;
         }
-
-        // 2. SETUP
-        DataSource dataSource = createDataSource(config);
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-        String tableName = config.getTargetTableName();
-
-        // Розбираємо JSON мапінг
-        List<FieldMap> mappings = objectMapper.readValue(
-                config.getFieldMappingJson(),
-                new TypeReference<List<FieldMap>>() {}
-        );
-
-        // 3. PREPARE TABLE (якщо режим створення)
-        if (config.isCreateNewTable()) {
-            prepareTargetTable(jdbcTemplate, tableName, mappings);
+        for (SyncTask task : tasks) {
+            // Ініціалізуємо статус перед запуском
+            executionManager.initTask(task.getId());
+            // Запускаємо асинхронно
+            runTaskAsync(task.getId());
         }
+    }
 
-        // 4. LOAD
-        jdbcTemplate.execute("DELETE FROM " + tableName);
+    // Основний метод. @Async змушує його виконуватись у фоновому потоці.
+    @Async("etlTaskExecutor")
+    public void runTaskAsync(Long taskId) {
+        String threadName = Thread.currentThread().getName();
+        log.info("Async start task {} on {}", taskId, threadName);
+        executionManager.log(taskId, "🚀 Старт обробки (Потік: " + threadName + ")");
 
-        // Створюємо мапу: заголовок -> індекс у списку Google Sheets
-        List<Object> headers = rawData.get(0);
-        Map<String, Integer> headerIndexMap = new HashMap<>();
-        for (int i = 0; i < headers.size(); i++) {
-            headerIndexMap.put(headers.get(i).toString(), i);
-        }
+        try {
+            AppConfig globalConfig = configService.getConfig();
+            SyncTask task = taskService.getTask(taskId);
 
-        // Фільтруємо мапінг: залишаємо тільки ті поля, які є в Google Sheets
-        List<FieldMap> activeMappings = mappings.stream()
-                .filter(m -> m.getTargetColumn() != null && !m.getTargetColumn().isEmpty())
-                .filter(m -> headerIndexMap.containsKey(m.getSourceHeader()))
-                .collect(Collectors.toList());
+            executionManager.log(taskId, "📊 Читання Google Sheet: " + task.getGoogleSheetId());
 
-        String sql = generateInsertSql(tableName, activeMappings);
-        List<List<Object>> dataRows = rawData.subList(1, rawData.size());
+            // 1. Читання
+            List<List<Object>> rawData = googleSheetsService.readSheet(
+                    task.getGoogleSheetId(),
+                    task.getSheetName(),
+                    globalConfig.getServiceAccountKeyPath()
+            );
 
-        for (List<Object> row : dataRows) {
-            Object[] params = new Object[activeMappings.size()];
-            for (int i = 0; i < activeMappings.size(); i++) {
-                FieldMap m = activeMappings.get(i);
-                int sourceIdx = headerIndexMap.get(m.getSourceHeader());
-                params[i] = (sourceIdx < row.size()) ? row.get(sourceIdx) : null;
+            if (rawData == null || rawData.isEmpty()) {
+                executionManager.log(taskId, "⚠️ Дані відсутні або файл пустий.");
+                executionManager.finish(taskId, false, "Пустий файл");
+                return;
             }
-            jdbcTemplate.update(sql, params);
+
+            executionManager.log(taskId, "📥 Отримано рядків: " + rawData.size());
+
+            // 2. Конвертація (Ваш метод без змін)
+            SheetData processedData = convertToSheetData(rawData);
+
+            // 3. Запис
+            executionManager.log(taskId, "🗄️ Запис у БД: " + task.getTargetTableName());
+
+            databaseService.saveData(
+                    processedData,
+                    task.getTargetTableName(),
+                    task.getFieldMappingJson(),
+                    task.isCreateNewTable(),
+                    globalConfig.getTargetDbUrl(),
+                    globalConfig.getTargetDbUser(),
+                    globalConfig.getTargetDbPassword(),
+                    globalConfig.getDefaultChunkSize()
+            );
+
+            int count = processedData.getRows() != null ? processedData.getRows().size() : 0;
+            executionManager.updateProgress(taskId, count);
+            executionManager.finish(taskId, true, "Успішно імпортовано " + count + " записів.");
+
+        } catch (Exception e) {
+            log.error("Task failed", e);
+            executionManager.finish(taskId, false, "Помилка: " + e.getMessage());
         }
-
-        return dataRows.size();
     }
 
-    private void prepareTargetTable(JdbcTemplate jdbcTemplate, String tableName, List<FieldMap> mappings) {
-        String columns = mappings.stream()
-                .filter(m -> m.getTargetColumn() != null && !m.getTargetColumn().isEmpty())
-                .map(m -> m.getTargetColumn() + " TEXT")
-                .collect(Collectors.joining(", "));
-
-        String sql = String.format("CREATE TABLE IF NOT EXISTS %s (%s)", tableName, columns);
-        log.info("Executing Table Creation: {}", sql);
-        jdbcTemplate.execute(sql);
-    }
-
-    private String generateInsertSql(String tableName, List<FieldMap> mappings) {
-        String columns = mappings.stream()
-                .map(FieldMap::getTargetColumn)
-                .collect(Collectors.joining(", "));
-
-        String placeholders = mappings.stream()
-                .map(m -> "?")
-                .collect(Collectors.joining(", "));
-
-        return String.format("INSERT INTO %s (%s) VALUES (%s)", tableName, columns, placeholders);
-    }
-
-    private DataSource createDataSource(AppConfig config) {
-        DriverManagerDataSource ds = new DriverManagerDataSource();
-        ds.setUrl(config.getTargetDbUrl());
-        ds.setUsername(config.getTargetDbUser());
-        ds.setPassword(config.getTargetDbPassword());
-
-        // Авто-визначення драйвера
-        String url = config.getTargetDbUrl().toLowerCase();
-        if (url.contains("postgresql")) ds.setDriverClassName("org.postgresql.Driver");
-        else if (url.contains("sqlite")) ds.setDriverClassName("org.sqlite.JDBC");
-
-        return ds;
+    // Ваш допоміжний метод (залишився без змін)
+    private SheetData convertToSheetData(List<List<Object>> rawData) {
+        if (rawData.size() < 2) {
+            return new SheetData(Collections.emptyList(), Collections.emptyList());
+        }
+        List<String> headers = rawData.get(0).stream()
+                .map(obj -> obj != null ? obj.toString() : "")
+                .collect(Collectors.toList());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 1; i < rawData.size(); i++) {
+            List<Object> rowRaw = rawData.get(i);
+            Map<String, Object> rowMap = new LinkedHashMap<>();
+            for (int j = 0; j < headers.size(); j++) {
+                String header = headers.get(j);
+                Object value = (j < rowRaw.size()) ? rowRaw.get(j) : null;
+                rowMap.put(header, value);
+            }
+            rows.add(rowMap);
+        }
+        return new SheetData(headers, rows);
     }
 }

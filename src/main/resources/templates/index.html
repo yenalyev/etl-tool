@@ -1,1268 +1,262 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
 <div th:fragment="content">
-    <style>
-        /* ============================================ */
-        /* ANIMATIONS */
-        /* ============================================ */
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        .spinner {
-            animation: spin 1s linear infinite;
-        }
+    <div class="max-w-6xl mx-auto">
 
-        @keyframes slide-in-from-bottom {
-            from { transform: translateY(100%); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-        @keyframes slide-out-to-bottom {
-            from { transform: translateY(0); opacity: 1; }
-            to { transform: translateY(100%); opacity: 0; }
-        }
-        @keyframes fade-in {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        @keyframes fade-out {
-            from { opacity: 1; }
-            to { opacity: 0; }
-        }
-        @keyframes slide-in-from-top {
-            from { transform: translateY(-10px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-
-        .animate-in { animation-duration: 0.3s; animation-fill-mode: both; }
-        .fade-in { animation-name: fade-in; }
-        .slide-in-from-bottom-4 { animation-name: slide-in-from-bottom; }
-        .slide-in-from-top-2 { animation-name: slide-in-from-top; }
-
-        .animate-out { animation-duration: 0.3s; animation-fill-mode: both; }
-        .fade-out { animation-name: fade-out; }
-        .slide-out-to-bottom-4 { animation-name: slide-out-to-bottom; }
-
-        /* ============================================ */
-        /* MAPPING FIELD STYLES */
-        /* ============================================ */
-        .mapping-input:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .skip-indicator {
-            font-size: 10px;
-            transition: all 0.2s ease;
-            font-weight: bold;
-        }
-
-        .skip-btn {
-            opacity: 0.7;
-            min-width: 24px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            font-size: 16px;
-            line-height: 1;
-        }
-
-        .skip-btn:hover {
-            opacity: 1;
-            background-color: #ef4444 !important;
-            color: white;
-        }
-
-        /* Smooth transitions for skip states */
-        .opacity-50 {
-            opacity: 0.5;
-            transition: opacity 0.2s ease;
-        }
-
-        /* Placeholder styling */
-        .mapping-input::placeholder {
-            color: #64748b;
-            font-style: italic;
-        }
-
-        /* ============================================ */
-        /* VALIDATION STYLES */
-        /* ============================================ */
-        .mapping-input.error {
-            border: 2px solid #ef4444 !important;
-            background-color: rgba(239, 68, 68, 0.1) !important;
-        }
-
-        .mapping-input.error:focus {
-            ring-color: #ef4444 !important;
-        }
-
-        .error-message {
-            color: #ef4444;
-            font-size: 10px;
-            margin-top: 2px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-weight: 600;
-        }
-
-        .mapping-row.has-error {
-            border-color: #ef4444 !important;
-            background-color: rgba(239, 68, 68, 0.05);
-        }
-
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-5px); }
-            75% { transform: translateX(5px); }
-        }
-
-        .shake {
-            animation: shake 0.3s;
-        }
-    </style>
-
-    <div class="max-w-4xl mx-auto">
-        <header class="mb-10">
-            <h2 class="text-2xl font-bold text-blue-400">System Configuration</h2>
-            <p class="text-slate-500 text-sm mt-1">Налаштування доступу до джерел даних та цільової бази</p>
-        </header>
-
-        <input type="hidden" id="initialTableName" th:value="${config.targetTableName}">
-
-        <form th:action="@{/settings/save}" th:object="${config}" method="post" onsubmit="return validateForm()" class="space-y-8">
-
-            <!-- ============================================ -->
-            <!-- GOOGLE SHEETS SECTION -->
-            <!-- ============================================ -->
-            <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl transition-all hover:border-slate-600">
-                <h2 class="text-xl font-bold mb-6 text-blue-400 flex items-center gap-3">
-                    <span class="p-2 bg-blue-900/30 rounded-lg text-sm">📊</span> Google Sheets
-                </h2>
-                <div class="space-y-6">
-                    <!-- Google Sheet ID -->
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-2 font-medium">Google Sheet ID</label>
-                        <input type="text" th:field="*{googleSheetId}" id="googleSheetId"
-                               placeholder="1BxiMVs0XRA5nFMdKvBdBAngmUU..."
-                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none text-gray-200 transition-all">
-                    </div>
-
-                    <!-- Service Account Key Path -->
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-2 font-medium">Service Account JSON Path</label>
-                        <div class="flex gap-3">
-                            <input type="text" th:field="*{serviceAccountKeyPath}" id="serviceAccountKeyPath" readonly
-                                   class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-400 cursor-default">
-                            <button type="button" onclick="openFileBrowser()"
-                                    class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-bold transition-colors">📁 Browse</button>
-                            <button type="button" onclick="testGoogleConnection()" id="btnTestConn"
-                                    class="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold flex items-center transition-all">
-                                <span id="btnText">Verify</span>
-                                <svg id="loader" class="hidden spinner ml-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            </button>
-                        </div>
-                        <div id="connectionStatus" class="mt-4 p-4 rounded-xl text-sm hidden border animate-in fade-in slide-in-from-top-2"></div>
-                    </div>
-
-                    <!-- Sheet Selection Block -->
-                    <div id="sheetSelectionBlock" class="hidden animate-in fade-in slide-in-from-top-2">
-                        <label class="block text-sm text-gray-400 mb-2 font-medium">
-                            Аркуш (Sheet)
-                            <span class="text-xs text-slate-500 ml-2">опціонально</span>
-                        </label>
-                        <div class="flex gap-3">
-                            <select th:field="*{sheetName}" id="sheetNameSelect"
-                                    onchange="handleSheetChange()"
-                                    class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-blue-500 transition-all">
-                                <option value="">-- Перший аркуш за замовчуванням --</option>
-                            </select>
-                            <button type="button" onclick="loadSheetsList()" id="btnLoadSheets"
-                                    class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-bold transition-colors flex items-center gap-2">
-                                <span id="btnLoadSheetsText">🔄</span>
-                            </button>
-                        </div>
-                        <p class="text-xs text-slate-500 mt-2 flex items-start gap-2">
-                            <span>💡</span>
-                            <span>Якщо не обрано конкретний аркуш - система автоматично використає перший аркуш таблиці</span>
-                        </p>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ============================================ -->
-            <!-- TARGET DATABASE SECTION -->
-            <!-- ============================================ -->
-            <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl transition-all hover:border-slate-600">
-                <h2 class="text-xl font-bold mb-6 text-green-400 flex items-center gap-3">
-                    <span class="p-2 bg-green-900/30 rounded-lg text-sm">🗄️</span> Target Database
-                </h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="md:col-span-2">
-                        <label class="block text-sm text-gray-400 mb-2 font-medium">JDBC Connection URL</label>
-                        <input type="text" th:field="*{targetDbUrl}" id="targetDbUrl"
-                               placeholder="jdbc:postgresql://localhost:5432/mydb"
-                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 outline-none transition-all text-gray-200">
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-2 font-medium">Username</label>
-                        <input type="text" th:field="*{targetDbUser}" id="targetDbUser"
-                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 outline-none transition-all text-gray-200">
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-2 font-medium">Password</label>
-                        <input type="password" th:field="*{targetDbPassword}" id="targetDbPassword"
-                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 outline-none transition-all text-gray-200">
-                    </div>
-                </div>
-                <div class="mt-6">
-                    <button type="button" onclick="testDatabaseConnection()" id="btnTestDb"
-                            class="px-8 py-3 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-xl font-bold transition-all flex items-center gap-2">
-                        <span id="btnDbText">Test Connection</span>
-                        <svg id="dbLoader" class="hidden spinner h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                    </button>
-                    <div id="dbStatus" class="hidden mt-4 p-4 rounded-xl text-xs font-bold border animate-in fade-in"></div>
-                </div>
-            </section>
-
-            <!-- ============================================ -->
-            <!-- TARGET CONFIGURATION SECTION -->
-            <!-- ============================================ -->
-            <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl transition-all hover:border-slate-600">
-                <h2 class="text-xl font-bold mb-6 text-purple-400 flex items-center gap-3">
-                    <span class="p-2 bg-purple-900/30 rounded-lg text-sm">📋</span> Target Configuration
-                </h2>
-
-                <!-- READ-ONLY MODE -->
-                <div id="readOnlyMode" th:if="${not #strings.isEmpty(config.targetTableName)}" class="animate-in fade-in">
-                    <div class="bg-gray-900/50 rounded-xl p-6 border border-gray-700/50">
-                        <div class="flex justify-between items-start mb-6">
-                            <div>
-                                <h3 class="text-sm text-gray-400 uppercase tracking-wider font-bold mb-1">Обрана таблиця</h3>
-                                <div class="text-2xl text-white font-mono flex items-center gap-2">
-                                    <span class="text-purple-400">⚡</span>
-                                    <span th:text="${config.targetTableName}"></span>
-                                </div>
-                            </div>
-                            <button type="button" onclick="switchToEditMode()"
-                                    class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-bold rounded-lg border border-slate-600 hover:text-white transition-all flex items-center gap-2">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                </svg>
-                                Змінити налаштування
-                            </button>
-                        </div>
-
-                        <div class="space-y-3">
-                            <h3 class="text-sm text-gray-400 uppercase tracking-wider font-bold mb-3">Активний мапінг полів</h3>
-                            <div id="readOnlyMappingList" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- EDIT MODE -->
-                <div id="editModeWrapper" th:classappend="${not #strings.isEmpty(config.targetTableName)} ? 'hidden' : ''">
-                    <div class="space-y-6">
-                        <div class="flex gap-4 p-1 bg-gray-900 rounded-xl w-fit border border-gray-700">
-                            <button type="button" onclick="setTableMode(false)" id="modeSelect"
-                                    class="px-6 py-2 rounded-lg text-sm font-bold transition-all">Вибрати існуючу</button>
-                            <button type="button" onclick="setTableMode(true)" id="modeCreate"
-                                    class="px-6 py-2 rounded-lg text-sm font-bold transition-all">Створити нову</button>
-                        </div>
-                        <input type="hidden" th:field="*{createNewTable}" id="createNewTable">
-
-                        <div id="selectContainer">
-                            <label class="block text-sm text-gray-400 mb-2 font-medium">Оберіть таблицю</label>
-                            <select th:field="*{targetTableName}" id="tableSelect" onchange="refreshMapping()"
-                                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-purple-500 transition-all">
-                                <option value="">Завантаження таблиць...</option>
-                            </select>
-                        </div>
-
-                        <div id="createContainer" class="hidden">
-                            <label class="block text-sm text-gray-400 mb-2 font-medium">Назва нової таблиці</label>
-                            <input type="text" id="newTableNameInput" oninput="syncTableName(this.value)"
-                                   placeholder="my_table_name"
-                                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-purple-500 transition-all">
-                        </div>
-                    </div>
-
-                    <div id="mappingSection" class="hidden mt-8 pt-8 border-t border-slate-700 border-dashed animate-in fade-in slide-in-from-top-4">
-                        <div class="flex items-center justify-between mb-6">
-                            <h2 class="text-xl font-bold text-orange-400 flex items-center gap-3">
-                                <span class="p-2 bg-orange-900/30 rounded-lg text-sm">🔗</span> Field Mapping
-                            </h2>
-                            <div class="flex items-center gap-4">
-                                <div id="duplicateWarning" class="hidden text-xs text-red-400 font-bold flex items-center gap-2 animate-in fade-in">
-                                    <span>⚠️</span>
-                                    <span>Знайдено дублі колонок!</span>
-                                </div>
-                                <div id="mappingStats" class="text-xs text-slate-500"></div>
-                            </div>
-                        </div>
-                        <div id="mappingContainer" class="space-y-3"></div>
-                    </div>
-                </div>
-
-                <input type="hidden" th:field="*{fieldMappingJson}" id="fieldMappingJson">
-            </section>
-
-            <!-- SUBMIT BUTTON -->
-            <div class="flex justify-end pt-4">
-                <button type="submit" id="submitBtn"
-                        th:text="${not #strings.isEmpty(config.targetTableName)} ? 'Save Changes' : 'Save Configuration'"
-                        class="px-12 py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl font-black shadow-lg uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                    Save Configuration
-                </button>
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
+            <div>
+                <h2 class="text-3xl font-bold text-white">Dashboard</h2>
+                <p class="text-slate-400 mt-1">Керування задачами синхронізації</p>
             </div>
-        </form>
+            <div class="flex gap-4">
+                <a th:href="@{/settings}" class="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-bold border border-slate-600">
+                    ⚙️ Налаштування
+                </a>
+                <a th:href="@{/task/new}" class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-900/20 active:scale-95">
+                    ➕ Нова задача
+                </a>
+            </div>
+        </div>
+
+        <div th:if="${param.saved}" class="mb-6 p-4 bg-green-900/20 border border-green-800 rounded-xl text-green-400">✅ Налаштування збережено!</div>
+        <div th:if="${param.deleted}" class="mb-6 p-4 bg-yellow-900/20 border border-yellow-800 rounded-xl text-yellow-400">🗑️ Задачу видалено.</div>
+
+        <div class="grid gap-6">
+            <div th:each="task : ${tasks}" th:id="'task-card-' + ${task.id}"
+                 class="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden transition-all duration-300">
+
+                <div class="p-6 flex justify-between items-start relative z-10 bg-slate-800">
+                    <div class="flex items-start gap-4">
+                        <div class="p-3 bg-gradient-to-br from-purple-900/40 to-blue-900/40 border border-white/10 rounded-xl text-2xl shadow-inner">
+                            📊
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-white mb-2 flex items-center gap-3">
+                                <span th:text="${task.taskName}">Task Name</span>
+                                <span th:id="'status-badge-' + ${task.id}"
+                                      class="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-slate-700 text-slate-400 border border-slate-600">
+                                    IDLE
+                                </span>
+                            </h3>
+
+                            <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 text-sm text-slate-400">
+                                <div class="flex items-center gap-2" title="Google Sheet">
+                                    <span class="text-orange-400 font-mono text-xs bg-orange-900/10 px-1.5 py-0.5 rounded border border-orange-900/20">Sheet</span>
+                                    <span class="text-white" th:text="${task.sheetName ?: 'Default'}">Sheet1</span>
+                                </div>
+                                <div class="hidden sm:block text-slate-700">➜</div>
+                                <div class="flex items-center gap-2" title="Database Table">
+                                    <span class="text-green-400 font-mono text-xs bg-green-900/10 px-1.5 py-0.5 rounded border border-green-900/20">DB</span>
+                                    <span class="font-bold text-white" th:text="${task.targetTableName}">table</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button th:onclick="'toggleRun(' + ${task.id} + ')'"
+                                th:id="'btn-run-' + ${task.id}"
+                                title="Запустити"
+                                class="p-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white rounded-lg transition-colors border border-blue-500/30">
+                            ▶️ Run
+                        </button>
+
+                        <a th:href="@{/task/edit/{id}(id=${task.id})}" title="Редагувати" class="p-2 bg-slate-700/50 text-slate-400 hover:bg-slate-600 hover:text-white rounded-lg transition-colors">
+                            ✏️
+                        </a>
+                        <a th:href="@{/task/delete/{id}(id=${task.id})}" onclick="return confirm('Видалити?')" title="Видалити" class="p-2 bg-red-900/20 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition-colors">
+                            🗑️
+                        </a>
+                    </div>
+                </div>
+
+                <div th:id="'terminal-box-' + ${task.id}" class="hidden border-t border-slate-700 bg-[#0c0c0c]">
+                    <div class="flex items-center justify-between px-4 py-2 bg-slate-900/80 border-b border-slate-800">
+                        <div class="flex items-center gap-4">
+                            <div class="flex gap-1.5">
+                                <div class="w-2.5 h-2.5 rounded-full bg-red-500/80"></div>
+                                <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></div>
+                                <div class="w-2.5 h-2.5 rounded-full bg-green-500/80"></div>
+                            </div>
+                            <span class="text-xs font-mono text-slate-500">live-log.sh</span>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <div class="text-xs text-slate-400">Processed: <span th:id="'row-count-' + ${task.id}" class="text-green-400 font-bold font-mono">0</span></div>
+                            <button th:onclick="'hideTerminal(' + ${task.id} + ')'" class="text-slate-500 hover:text-white text-xs uppercase font-bold">Close ✕</button>
+                        </div>
+                    </div>
+
+                    <div th:id="'terminal-logs-' + ${task.id}"
+                         class="h-64 overflow-y-auto p-4 font-mono text-xs text-slate-300 space-y-1 scroll-smooth">
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- ============================================ -->
-    <!-- JAVASCRIPT -->
-    <!-- ============================================ -->
     <script th:inline="javascript">
-        'use strict';
+        // Зберігаємо активні з'єднання SSE, щоб керувати ними
+        const activeConnections = {};
 
-        // ============================================
-        // CONSTANTS
-        // ============================================
-        const MESSAGES = {
-            DEFAULT_SHEET: '-- Перший аркуш за замовчуванням --',
-            LOADING: 'Завантаження...',
-            LOADING_ERROR: '❌ Помилка завантаження',
-            FILL_ALL_FIELDS: '⚠️ Заповніть всі поля',
-            SPECIFY_CREDENTIALS: '⚠️ Спочатку вкажіть Sheet ID та JSON ключ',
-            SELECT_JSON: '⚠️ Оберіть JSON файл з credentials',
-            DUPLICATE_COLUMNS: '⚠️ Знайдено дублі назв колонок',
-            EMPTY_COLUMN_NAME: 'Назва не може бути порожньою'
-        };
+        async function toggleRun(taskId) {
+            const terminalBox = document.getElementById(`terminal-box-${taskId}`);
+            const logsContainer = document.getElementById(`terminal-logs-${taskId}`);
+            const btnRun = document.getElementById(`btn-run-${taskId}`);
 
-        // ============================================
-        // STATE MANAGEMENT
-        // ============================================
-        let isLoadingSheets = false;
-        let isRefreshingMapping = false;
-        let hasDuplicates = false;
+            // Якщо вже запущено (або відкрито) - нічого не робимо, або можна реалізувати "Stop"
+            if (!terminalBox.classList.contains('hidden') && activeConnections[taskId]) {
+                // Вже відкрито, можливо користувач хоче закрити?
+                // Поки що просто ігноруємо клік або фокусуємось
+                return;
+            }
 
-        const hasSavedConfig = /*[[${not #strings.isEmpty(config.targetTableName)}]]*/ false;
+            // 1. Відкриваємо термінал
+            terminalBox.classList.remove('hidden');
+            logsContainer.innerHTML = '<div class="text-blue-500 animate-pulse">Initializing connection...</div>';
 
-        // ============================================
-        // INITIALIZATION
-        // ============================================
-        document.addEventListener("DOMContentLoaded", async () => {
+            updateStatusBadge(taskId, 'STARTING', 'blue');
+            btnRun.disabled = true;
+            btnRun.classList.add('opacity-50', 'cursor-not-allowed');
+
             try {
-                if (hasSavedConfig) {
-                    renderReadOnlyMapping();
+                // 2. Відправляємо команду START
+                const startRes = await fetch(`/api/sync/start/${taskId}`, { method: 'POST' });
+                if (!startRes.ok) throw new Error("Failed to start task");
 
-                    const sheetId = document.getElementById('googleSheetId')?.value;
-                    const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
-                    if (sheetId && keyPath) {
-                        toggleSheetSelection(true);
-                    }
+                // 3. Підключаємо SSE
+                connectSSE(taskId);
+
+            } catch (e) {
+                console.error(e);
+                appendLog(taskId, `❌ Error starting task: ${e.message}`, 'text-red-500');
+                btnRun.disabled = false;
+                btnRun.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        function connectSSE(taskId) {
+            // Закриваємо старе з'єднання якщо було
+            if (activeConnections[taskId]) {
+                activeConnections[taskId].close();
+            }
+
+            const eventSource = new EventSource(`/api/sync/stream/${taskId}`);
+            activeConnections[taskId] = eventSource;
+
+            const logsContainer = document.getElementById(`terminal-logs-${taskId}`);
+            const rowCounter = document.getElementById(`row-count-${taskId}`);
+
+            // LOG EVENT
+            eventSource.addEventListener('log', (e) => {
+                appendLog(taskId, e.data);
+            });
+
+            // PROGRESS EVENT
+            eventSource.addEventListener('progress', (e) => {
+                rowCounter.innerText = new Intl.NumberFormat('uk-UA').format(e.data);
+                updateStatusBadge(taskId, 'RUNNING', 'green', true);
+            });
+
+            // HISTORY EVENT (при відкритті вже запущеної задачі)
+            eventSource.addEventListener('history', (e) => {
+                const state = JSON.parse(e.data);
+                logsContainer.innerHTML = ''; // Clear init msg
+                rowCounter.innerText = state.rowsProcessed;
+
+                if (state.logs) {
+                    state.logs.forEach(line => appendLog(taskId, line));
+                }
+
+                if (!state.running) {
+                    handleFinish(taskId, state.success);
+                    eventSource.close();
+                    delete activeConnections[taskId];
                 } else {
-                    await initializeEditMode();
-                }
-            } catch (e) {
-                console.error('Initialization error:', e);
-                showToast('❌ Помилка ініціалізації', 'error');
-            }
-        });
-
-        // ============================================
-        // READ-ONLY MODE RENDERING
-        // ============================================
-        function renderReadOnlyMapping() {
-            const jsonField = document.getElementById('fieldMappingJson');
-            const container = document.getElementById('readOnlyMappingList');
-            const readOnlyMode = document.getElementById('readOnlyMode');
-
-            if (!jsonField || !container || !readOnlyMode) return;
-
-            const sheetName = /*[[${config.sheetName}]]*/ null;
-            if (sheetName) {
-                const existingInfo = readOnlyMode.querySelector('.sheet-info');
-                if (!existingInfo) {
-                    const sheetInfo = document.createElement('div');
-                    sheetInfo.className = 'sheet-info mb-4 p-3 bg-blue-900/10 border border-blue-800/30 rounded-lg';
-                    sheetInfo.innerHTML = `
-                        <div class="text-xs text-blue-400 uppercase tracking-wider font-bold mb-1">Обраний аркуш:</div>
-                        <div class="text-sm text-blue-300 font-mono">${escapeHtml(sheetName)}</div>
-                    `;
-                    const mappingSection = container.parentElement;
-                    const header = mappingSection.querySelector('h3');
-                    if (header) {
-                        mappingSection.insertBefore(sheetInfo, header);
-                    }
-                }
-            }
-
-            try {
-                const mappings = JSON.parse(jsonField.value || '[]');
-                if (mappings.length === 0) {
-                    container.innerHTML = '<div class="text-slate-500 italic">Мапінг відсутній</div>';
-                    return;
-                }
-
-                container.innerHTML = mappings.map(m => `
-                    <div class="flex items-center justify-between p-3 bg-gray-800 rounded-lg border border-gray-700">
-                        <div class="flex items-center gap-2 overflow-hidden">
-                            <span class="text-orange-300 text-xs font-mono bg-orange-900/20 px-2 py-1 rounded">G</span>
-                            <span class="text-slate-300 text-sm truncate" title="${escapeHtml(m.sourceHeader)}">${escapeHtml(m.sourceHeader)}</span>
-                        </div>
-                        <span class="text-slate-600 text-xs">➔</span>
-                        <div class="flex items-center gap-2 overflow-hidden justify-end">
-                            <span class="text-green-300 text-sm font-bold truncate" title="${escapeHtml(m.targetColumn)}">${escapeHtml(m.targetColumn)}</span>
-                            <span class="text-green-300 text-xs font-mono bg-green-900/20 px-2 py-1 rounded">DB</span>
-                        </div>
-                    </div>
-                `).join('');
-            } catch (e) {
-                console.error("Error parsing mapping JSON", e);
-                container.innerHTML = '<div class="text-red-400">Помилка відображення мапінгу</div>';
-            }
-        }
-
-        // ============================================
-        // EDIT MODE MANAGEMENT
-        // ============================================
-        async function switchToEditMode() {
-            const readOnlyMode = document.getElementById('readOnlyMode');
-            const editModeWrapper = document.getElementById('editModeWrapper');
-
-            if (readOnlyMode) readOnlyMode.classList.add('hidden');
-            if (editModeWrapper) editModeWrapper.classList.remove('hidden');
-
-            await initializeEditMode();
-        }
-
-        async function initializeEditMode() {
-            const createMode = document.getElementById('createNewTable')?.value === 'true';
-            const savedTable = document.getElementById('initialTableName')?.value;
-            const url = document.getElementById('targetDbUrl')?.value;
-            const user = document.getElementById('targetDbUser')?.value;
-            const pass = document.getElementById('targetDbPassword')?.value;
-
-            setTableMode(createMode);
-
-            if (url && user) {
-                await loadDatabaseTables(url, user, pass, savedTable);
-
-                if (createMode && savedTable) {
-                    const newInput = document.getElementById('newTableNameInput');
-                    if (newInput) newInput.value = savedTable;
-                }
-
-                const sheetId = document.getElementById('googleSheetId')?.value;
-                const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
-
-                if (sheetId && keyPath) {
-                    await refreshMapping();
-                }
-            }
-        }
-
-        // ============================================
-        // DATABASE FUNCTIONS
-        // ============================================
-        async function loadDatabaseTables(url, user, pass, selectValue = null) {
-            const select = document.getElementById('tableSelect');
-            if (!select) return;
-
-            try {
-                select.innerHTML = `<option>${MESSAGES.LOADING}</option>`;
-
-                const response = await fetch('/api/config/database/tables', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, user, password: pass })
-                });
-
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-                const tables = await response.json();
-
-                select.innerHTML = '<option value="">-- Оберіть таблицю --</option>';
-                tables.forEach(table => {
-                    const opt = document.createElement('option');
-                    opt.value = table;
-                    opt.innerText = table;
-                    if (selectValue && table === selectValue) opt.selected = true;
-                    select.appendChild(opt);
-                });
-            } catch (e) {
-                console.error('Error loading tables:', e);
-                select.innerHTML = `<option value="">${MESSAGES.LOADING_ERROR}</option>`;
-            }
-        }
-
-        async function testDatabaseConnection() {
-            const btn = document.getElementById('btnTestDb');
-            const btnText = document.getElementById('btnDbText');
-            const loader = document.getElementById('dbLoader');
-            const url = document.getElementById('targetDbUrl')?.value;
-            const user = document.getElementById('targetDbUser')?.value;
-            const pass = document.getElementById('targetDbPassword')?.value;
-
-            if (!url || !user) {
-                showToast(MESSAGES.FILL_ALL_FIELDS, 'warning');
-                return;
-            }
-
-            btn.disabled = true;
-            if (btnText) btnText.innerText = 'Connecting...';
-            if (loader) loader.classList.remove('hidden');
-
-            try {
-                const response = await fetch('/api/config/database/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, user, password: pass })
-                });
-
-                const result = await response.json();
-                const statusEl = document.getElementById('dbStatus');
-
-                if (statusEl) {
-                    statusEl.innerText = result.message;
-                    statusEl.className = `mt-4 p-4 rounded-xl text-xs font-bold border ${
-                        result.success
-                            ? 'text-green-400 border-green-900 bg-green-900/10'
-                            : 'text-red-400 border-red-900 bg-red-900/10'
-                    }`;
-                    statusEl.classList.remove('hidden');
-                }
-
-                if (result.success) {
-                    await loadDatabaseTables(url, user, pass);
-                }
-            } catch (e) {
-                console.error('Database test error:', e);
-                showToast('❌ Помилка з\'єднання з БД', 'error');
-            } finally {
-                btn.disabled = false;
-                if (btnText) btnText.innerText = 'Test Connection';
-                if (loader) loader.classList.add('hidden');
-            }
-        }
-
-        // ============================================
-        // GOOGLE SHEETS FUNCTIONS
-        // ============================================
-        async function testGoogleConnection() {
-            const btn = document.getElementById('btnTestConn');
-            const btnText = document.getElementById('btnText');
-            const loader = document.getElementById('loader');
-            const path = document.getElementById('serviceAccountKeyPath')?.value;
-            const sheetId = document.getElementById('googleSheetId')?.value;
-
-            if (!path || !sheetId) {
-                showToast(MESSAGES.FILL_ALL_FIELDS, 'warning');
-                return;
-            }
-
-            btn.disabled = true;
-            if (loader) loader.classList.remove('hidden');
-            if (btnText) btnText.innerText = 'Verify...';
-
-            try {
-                const response = await fetch('/api/config/google-sheets/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ jsonPath: path, spreadsheetId: sheetId })
-                });
-
-                const result = await response.json();
-
-                updateStatus(
-                    result.message,
-                    result.success
-                        ? "text-green-400 border-green-900 bg-green-900/10"
-                        : "text-red-400 border-red-900 bg-red-900/10"
-                );
-
-                if (result.success) {
-                    toggleSheetSelection(true);
-                    await loadSheetsList();
-
-                    const wrapper = document.getElementById('editModeWrapper');
-                    if (wrapper && !wrapper.classList.contains('hidden')) {
-                        await refreshMapping();
-                    }
-                } else {
-                    toggleSheetSelection(false);
-                }
-            } catch (e) {
-                console.error('Google connection test error:', e);
-                updateStatus("❌ Помилка з'єднання", "text-red-500 bg-red-900/10 border-red-900");
-                toggleSheetSelection(false);
-            } finally {
-                btn.disabled = false;
-                if (loader) loader.classList.add('hidden');
-                if (btnText) btnText.innerText = 'Verify';
-            }
-        }
-
-        async function loadSheetsList() {
-            if (isLoadingSheets) return;
-            isLoadingSheets = true;
-
-            const sheetId = document.getElementById('googleSheetId')?.value;
-            const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
-            const select = document.getElementById('sheetNameSelect');
-            const btn = document.getElementById('btnLoadSheets');
-            const btnText = document.getElementById('btnLoadSheetsText');
-
-            if (!sheetId || !keyPath) {
-                showToast(MESSAGES.SPECIFY_CREDENTIALS, 'warning');
-                isLoadingSheets = false;
-                return;
-            }
-
-            btn.disabled = true;
-            if (btnText) btnText.innerHTML = '<div class="spinner w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>';
-            if (select) select.innerHTML = `<option value="">${MESSAGES.LOADING}</option>`;
-
-            try {
-                const response = await fetch(
-                    `/api/config/google-sheets/list?sheetId=${encodeURIComponent(sheetId)}&keyPath=${encodeURIComponent(keyPath)}`
-                );
-
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-                const data = await response.json();
-
-                if (data.success && data.sheets && select) {
-                    select.innerHTML = `<option value="">${MESSAGES.DEFAULT_SHEET}</option>`;
-
-                    data.sheets.forEach(sheet => {
-                        const opt = document.createElement('option');
-                        opt.value = sheet;
-                        opt.innerText = sheet;
-                        select.appendChild(opt);
-                    });
-
-                    const savedSheet = /*[[${config.sheetName}]]*/ null;
-                    if (savedSheet) select.value = savedSheet;
-
-                    showToast(`✅ Знайдено ${data.sheets.length} аркушів`, 'success');
-                } else {
-                    throw new Error(data.error || 'Невідома помилка');
-                }
-            } catch (e) {
-                console.error('Error loading sheets:', e);
-                if (select) select.innerHTML = `<option value="">${MESSAGES.LOADING_ERROR}</option>`;
-                showToast('❌ ' + e.message, 'error');
-            } finally {
-                btn.disabled = false;
-                if (btnText) btnText.innerText = '🔄';
-                isLoadingSheets = false;
-            }
-        }
-
-        function handleSheetChange() {
-            const wrapper = document.getElementById('editModeWrapper');
-            if (wrapper && !wrapper.classList.contains('hidden')) {
-                refreshMapping();
-            }
-        }
-
-        function toggleSheetSelection(show) {
-            const block = document.getElementById('sheetSelectionBlock');
-            if (block) {
-                if (show) {
-                    block.classList.remove('hidden');
-                } else {
-                    block.classList.add('hidden');
-                }
-            }
-        }
-
-        // ============================================
-        // FIELD MAPPING FUNCTIONS
-        // ============================================
-        async function refreshMapping() {
-            if (isRefreshingMapping) return;
-            isRefreshingMapping = true;
-
-            const sheetId = document.getElementById('googleSheetId')?.value;
-            const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
-            const sheetName = document.getElementById('sheetNameSelect')?.value || '';
-            const tableName = document.getElementById('tableSelect')?.value;
-            const isCreate = document.getElementById('createNewTable')?.value === 'true';
-            const mappingSection = document.getElementById('mappingSection');
-            const container = document.getElementById('mappingContainer');
-
-            if (!sheetId || !keyPath || (!isCreate && !tableName)) {
-                if (mappingSection) mappingSection.classList.add('hidden');
-                isRefreshingMapping = false;
-                return;
-            }
-
-            if (mappingSection) mappingSection.classList.remove('hidden');
-            if (container) container.innerHTML = `<div class="text-blue-400 animate-pulse text-center p-4">${MESSAGES.LOADING}</div>`;
-
-            const existingMappingRaw = document.getElementById('fieldMappingJson')?.value;
-            let existingMapping = {};
-            if (existingMappingRaw) {
-                try {
-                    const parsed = JSON.parse(existingMappingRaw);
-                    parsed.forEach(m => existingMapping[m.sourceHeader] = m.targetColumn);
-                } catch (e) {
-                    console.error('Error parsing existing mapping:', e);
-                }
-            }
-
-            try {
-                let url = `/api/config/google-headers?sheetId=${encodeURIComponent(sheetId)}&keyPath=${encodeURIComponent(keyPath)}`;
-                if (sheetName) {
-                    url += `&sheetName=${encodeURIComponent(sheetName)}`;
-                }
-
-                const hResp = await fetch(url);
-                if (!hResp.ok) throw new Error(`HTTP ${hResp.status}`);
-
-                const headers = await hResp.json();
-                if (!Array.isArray(headers)) throw new Error('Invalid response format');
-
-                let dbColumns = [];
-                if (!isCreate) {
-                    const dbUrl = document.getElementById('targetDbUrl')?.value;
-                    const dbUser = document.getElementById('targetDbUser')?.value;
-                    const dbPass = document.getElementById('targetDbPassword')?.value;
-
-                    const dbResp = await fetch(
-                        `/api/config/database/columns?tableName=${encodeURIComponent(tableName)}&url=${encodeURIComponent(dbUrl)}&user=${encodeURIComponent(dbUser)}&password=${encodeURIComponent(dbPass)}`
-                    );
-
-                    if (dbResp.ok) {
-                        dbColumns = await dbResp.json();
-                    }
-                }
-
-                if (container) {
-                    container.innerHTML = "";
-
-                    headers.forEach(header => {
-                        const row = document.createElement('div');
-                        row.className = "mapping-row flex items-start gap-4 bg-gray-900/40 p-3 rounded-xl border border-slate-700/50 transition-all hover:border-slate-600";
-
-                        const savedTarget = existingMapping[header] || '';
-                        const isSkipped = isCreate && !savedTarget;
-                        const defaultValue = isCreate ? transliterate(header) : '';
-
-                        let targetHtml = isCreate
-                            ? `<div class="flex-1 flex flex-col gap-1">
-                                   <div class="flex gap-2 items-center">
-                                       <input type="text"
-                                              value="${escapeHtml(savedTarget || defaultValue)}"
-                                              placeholder="column_name"
-                                              class="mapping-input flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-orange-300 placeholder:text-slate-600 focus:ring-2 focus:ring-orange-500 transition-all"
-                                              data-source="${escapeHtml(header)}"
-                                              oninput="handleMappingInput(this)"
-                                              title="Введіть назву колонки або залиште порожнім для пропуску">
-                                       <button type="button"
-                                               onclick="clearMappingInput(this)"
-                                               class="skip-btn px-2 py-1 bg-slate-700 hover:bg-red-600 rounded text-xs transition-all"
-                                               title="Пропустити це поле">
-                                           ✕
-                                       </button>
-                                   </div>
-                                   <div class="error-message hidden"></div>
-                               </div>`
-                            : `<div class="flex-1">
-                                   <select class="mapping-input w-full bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-green-300 focus:ring-2 focus:ring-green-500 transition-all"
-                                           data-source="${escapeHtml(header)}">
-                                       <option value="">-- Пропустити --</option>
-                                       ${dbColumns.map(col =>
-                                `<option value="${escapeHtml(col)}" ${savedTarget === col ? 'selected' : ''}>${escapeHtml(col)}</option>`
-                            ).join('')}
-                                   </select>
-                               </div>`;
-
-                        if (isSkipped) {
-                            row.classList.add('opacity-50');
-                        }
-
-                        row.innerHTML = `
-                            <div class="w-1/3 text-xs text-slate-400 truncate flex items-center gap-2 pt-1" title="${escapeHtml(header)}">
-                                <span class="skip-indicator ${isSkipped ? 'text-slate-600' : 'text-orange-400'}">${isSkipped ? '⊘' : '●'}</span>
-                                <span>${escapeHtml(header)}</span>
-                            </div>
-                            <div class="text-slate-700 pt-1">➔</div>
-                            ${targetHtml}
-                        `;
-
-                        container.appendChild(row);
-                    });
-
-                    container.querySelectorAll('.mapping-input').forEach(el => {
-                        el.addEventListener('change', () => {
-                            updateMappingJson();
-                            validateDuplicateColumns();
-                        });
-                        if (el.tagName === 'INPUT') {
-                            el.addEventListener('input', () => {
-                                updateMappingJson();
-                                validateDuplicateColumns();
-                            });
-                        }
-                    });
-
-                    updateMappingJson();
-                    validateDuplicateColumns();
-                    updateMappingStats();
-                }
-            } catch (e) {
-                console.error('Error refreshing mapping:', e);
-                if (container) {
-                    container.innerHTML = '<div class="text-red-500 text-center p-4">❌ Помилка завантаження структури</div>';
-                }
-            } finally {
-                isRefreshingMapping = false;
-            }
-        }
-
-        function handleMappingInput(input) {
-            // Sanitize input in real-time
-            let value = input.value;
-
-            // Replace spaces with underscores
-            value = value.replace(/\s+/g, '_');
-
-            // Remove invalid characters (only allow alphanumeric and underscore)
-            value = value.replace(/[^a-zA-Z0-9_]/g, '');
-
-            // Ensure it doesn't start with a number
-            if (value.length > 0 && /^\d/.test(value)) {
-                value = '_' + value;
-            }
-
-            // Update input if value changed
-            if (input.value !== value) {
-                const cursorPos = input.selectionStart;
-                input.value = value;
-                input.setSelectionRange(cursorPos, cursorPos);
-            }
-
-            toggleSkipIndicator(input);
-            updateMappingJson();
-            validateDuplicateColumns();
-        }
-
-        function validateDuplicateColumns() {
-            const isCreate = document.getElementById('createNewTable')?.value === 'true';
-            if (!isCreate) {
-                hasDuplicates = false;
-                updateSubmitButton();
-                return;
-            }
-
-            const inputs = document.querySelectorAll('input.mapping-input');
-            const columnNames = new Map();
-            const duplicates = new Set();
-
-            // Clear previous errors
-            inputs.forEach(input => {
-                input.classList.remove('error');
-                const row = input.closest('.mapping-row');
-                if (row) {
-                    row.classList.remove('has-error');
-                    const errorMsg = row.querySelector('.error-message');
-                    if (errorMsg) errorMsg.classList.add('hidden');
+                    updateStatusBadge(taskId, 'RUNNING', 'green', true);
                 }
             });
 
-            // Find duplicates
-            inputs.forEach(input => {
-                const value = input.value.trim().toLowerCase();
-                if (value) {
-                    if (columnNames.has(value)) {
-                        duplicates.add(value);
-                    } else {
-                        columnNames.set(value, input);
-                    }
-                }
+            // FINISHED EVENT
+            eventSource.addEventListener('finished', (e) => {
+                const success = e.data === 'true';
+                handleFinish(taskId, success);
+                eventSource.close();
+                delete activeConnections[taskId];
             });
 
-            // Mark duplicates
-            hasDuplicates = duplicates.size > 0;
-
-            if (hasDuplicates) {
-                inputs.forEach(input => {
-                    const value = input.value.trim().toLowerCase();
-                    if (duplicates.has(value)) {
-                        input.classList.add('error');
-                        const row = input.closest('.mapping-row');
-                        if (row) {
-                            row.classList.add('has-error', 'shake');
-                            setTimeout(() => row.classList.remove('shake'), 300);
-
-                            const errorMsg = row.querySelector('.error-message');
-                            if (errorMsg) {
-                                errorMsg.innerHTML = '<span>⚠️</span><span>Дублікат: змініть назву</span>';
-                                errorMsg.classList.remove('hidden');
-                            }
-                        }
-                    }
-                });
-            }
-
-            // Update warning banner
-            const warningEl = document.getElementById('duplicateWarning');
-            if (warningEl) {
-                if (hasDuplicates) {
-                    warningEl.classList.remove('hidden');
-                } else {
-                    warningEl.classList.add('hidden');
-                }
-            }
-
-            updateSubmitButton();
-        }
-
-        function updateSubmitButton() {
-            const submitBtn = document.getElementById('submitBtn');
-            if (submitBtn) {
-                submitBtn.disabled = hasDuplicates;
-                if (hasDuplicates) {
-                    submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                    submitBtn.title = 'Виправте помилки перед збереженням';
-                } else {
-                    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                    submitBtn.title = '';
-                }
-            }
-        }
-
-        function updateMappingJson() {
-            const mappings = [];
-            document.querySelectorAll('.mapping-input').forEach(el => {
-                const value = el.value ? el.value.trim() : '';
-                if (value) {
-                    mappings.push({
-                        sourceHeader: el.getAttribute('data-source'),
-                        targetColumn: value
-                    });
-                }
-            });
-            const jsonField = document.getElementById('fieldMappingJson');
-            if (jsonField) jsonField.value = JSON.stringify(mappings);
-
-            updateMappingStats();
-        }
-
-        function updateMappingStats() {
-            const statsEl = document.getElementById('mappingStats');
-            if (!statsEl) return;
-
-            const totalFields = document.querySelectorAll('.mapping-input').length;
-            const mappedFields = Array.from(document.querySelectorAll('.mapping-input'))
-                .filter(el => el.value && el.value.trim() !== '').length;
-            const skippedFields = totalFields - mappedFields;
-
-            if (totalFields > 0) {
-                statsEl.innerHTML = `
-                    <span class="text-orange-400">● ${mappedFields} mapped</span>
-                    <span class="text-slate-600 mx-2">|</span>
-                    <span class="text-slate-600">⊘ ${skippedFields} skipped</span>
-                `;
-            } else {
-                statsEl.innerHTML = '';
-            }
-        }
-
-        // ============================================
-        // MAPPING HELPERS
-        // ============================================
-        function clearMappingInput(button) {
-            const row = button.closest('.mapping-row');
-            const input = row.querySelector('input.mapping-input');
-
-            if (input) {
-                input.value = '';
-                input.classList.remove('error');
-                row.classList.remove('has-error');
-                const errorMsg = row.querySelector('.error-message');
-                if (errorMsg) errorMsg.classList.add('hidden');
-
-                toggleSkipIndicator(input);
-                updateMappingJson();
-                validateDuplicateColumns();
-            }
-        }
-
-        function toggleSkipIndicator(input) {
-            const row = input.closest('.mapping-row');
-            const indicator = row.querySelector('.skip-indicator');
-
-            if (input.value.trim() === '') {
-                row.classList.add('opacity-50');
-                if (indicator) {
-                    indicator.textContent = '⊘';
-                    indicator.classList.remove('text-orange-400');
-                    indicator.classList.add('text-slate-600');
-                }
-            } else {
-                row.classList.remove('opacity-50');
-                if (indicator) {
-                    indicator.textContent = '●';
-                    indicator.classList.remove('text-slate-600');
-                    indicator.classList.add('text-orange-400');
-                }
-            }
-        }
-
-        // ============================================
-        // TABLE MODE MANAGEMENT
-        // ============================================
-        function setTableMode(isCreate) {
-            const input = document.getElementById('createNewTable');
-            if (input) input.value = isCreate;
-
-            const selCont = document.getElementById('selectContainer');
-            const creCont = document.getElementById('createContainer');
-            if (selCont) selCont.classList.toggle('hidden', isCreate);
-            if (creCont) creCont.classList.toggle('hidden', !isCreate);
-
-            const btnCreate = document.getElementById('modeCreate');
-            const btnSelect = document.getElementById('modeSelect');
-
-            if (btnCreate && btnSelect) {
-                if (isCreate) {
-                    btnCreate.className = "px-6 py-2 rounded-lg text-sm font-bold bg-purple-600 text-white shadow-lg";
-                    btnSelect.className = "px-6 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white";
-                } else {
-                    btnSelect.className = "px-6 py-2 rounded-lg text-sm font-bold bg-purple-600 text-white shadow-lg";
-                    btnCreate.className = "px-6 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white";
-                }
-            }
-
-            const wrapper = document.getElementById('editModeWrapper');
-            if (wrapper && !wrapper.classList.contains('hidden')) {
-                refreshMapping();
-            }
-        }
-
-        function syncTableName(value) {
-            const sanitized = value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-            const input = document.getElementById('newTableNameInput');
-            if (input) input.value = sanitized;
-
-            const select = document.getElementById('tableSelect');
-            if (select) {
-                let opt = select.querySelector('option[data-temp="true"]');
-                if (!opt) {
-                    opt = document.createElement('option');
-                    opt.setAttribute('data-temp', 'true');
-                    select.appendChild(opt);
-                }
-                opt.value = sanitized;
-                opt.innerText = sanitized + " (нова)";
-                select.value = sanitized;
-            }
-            updateMappingJson();
-        }
-
-        // ============================================
-        // FILE BROWSER
-        // ============================================
-        async function openFileBrowser() {
-            const modal = document.getElementById('fileModal');
-            if (modal) {
-                modal.classList.remove('hidden');
-                await loadPath('');
-            }
-        }
-
-        async function loadPath(path) {
-            const list = document.getElementById('fileList');
-            const breadcrumbs = document.getElementById('fileBreadcrumbs');
-
-            if (!list) return;
-
-            list.innerHTML = `<div class="text-center py-8 text-slate-400">${MESSAGES.LOADING}</div>`;
-
-            try {
-                const response = await fetch(`/api/files/list?path=${encodeURIComponent(path || '')}`);
-                const data = await response.json();
-
-                if (data.error) {
-                    list.innerHTML = `<div class="text-red-400 p-4">${escapeHtml(data.error)}</div>`;
-                    return;
-                }
-
-                if (breadcrumbs) {
-                    breadcrumbs.innerText = data.currentPath || 'Мій комп\'ютер';
-                }
-
-                let html = '';
-                if (data.parentPath) {
-                    html += `
-                        <div onclick="loadPath('${escapeHtml(data.parentPath)}')"
-                             class="p-3 hover:bg-gray-700 rounded-lg cursor-pointer flex items-center gap-3 transition-colors">
-                            <span class="text-2xl">⬆️</span>
-                            <span class="text-slate-300">.. (назад)</span>
-                        </div>
-                    `;
-                }
-
-                data.items.forEach(item => {
-                    const icon = item.isDirectory ? '📁' : '📄';
-                    const clickHandler = item.isDirectory
-                        ? `loadPath('${escapeHtml(item.absolutePath)}')`
-                        : `selectFile('${escapeHtml(item.absolutePath)}')`;
-
-                    html += `
-                        <div onclick="${clickHandler}"
-                             class="p-3 hover:bg-gray-700 rounded-lg cursor-pointer flex items-center gap-3 transition-colors">
-                            <span class="text-2xl">${icon}</span>
-                            <span class="text-slate-300 truncate">${escapeHtml(item.name)}</span>
-                        </div>
-                    `;
-                });
-
-                list.innerHTML = html || '<div class="text-slate-500 italic p-4">Порожня папка</div>';
-
-            } catch (e) {
-                console.error('File browser error:', e);
-                list.innerHTML = `<div class="text-red-400 p-4">Помилка: ${escapeHtml(e.message)}</div>`;
-            }
-        }
-
-        async function selectFile(path) {
-            if (!path.toLowerCase().endsWith('.json')) {
-                showToast(MESSAGES.SELECT_JSON, 'warning');
-                return;
-            }
-
-            const input = document.getElementById('serviceAccountKeyPath');
-            if (input) input.value = path;
-
-            try {
-                const response = await fetch(`/api/files/get-email?path=${encodeURIComponent(path)}`);
-                const data = await response.json();
-                if (data.email) {
-                    showToast(`✅ Обрано: ${data.email}`, 'success');
-                }
-            } catch (e) {
-                console.warn('Could not read email:', e);
-            }
-
-            closeFileBrowser();
-        }
-
-        function closeFileBrowser() {
-            const modal = document.getElementById('fileModal');
-            if (modal) modal.classList.add('hidden');
-        }
-
-        // ============================================
-        // FORM VALIDATION
-        // ============================================
-        function validateForm() {
-            const sheetId = document.getElementById('googleSheetId')?.value;
-            const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
-            const dbUrl = document.getElementById('targetDbUrl')?.value;
-            const tableName = document.getElementById('tableSelect')?.value;
-            const mapping = document.getElementById('fieldMappingJson')?.value;
-
-            if (!sheetId || !keyPath) {
-                showToast('❌ Заповніть Google Sheets налаштування', 'error');
-                return false;
-            }
-
-            if (!dbUrl) {
-                showToast('❌ Вкажіть з\'єднання з БД', 'error');
-                return false;
-            }
-
-            if (!tableName) {
-                showToast('❌ Оберіть або створіть таблицю', 'error');
-                return false;
-            }
-
-            try {
-                const mappings = JSON.parse(mapping || '[]');
-                if (mappings.length === 0) {
-                    showToast('❌ Налаштуйте field mapping (мінімум 1 поле)', 'error');
-                    return false;
-                }
-            } catch (e) {
-                showToast('❌ Помилка в field mapping', 'error');
-                return false;
-            }
-
-            if (hasDuplicates) {
-                showToast('❌ Виправте дублі назв колонок', 'error');
-                return false;
-            }
-
-            updateMappingJson();
-            return true;
-        }
-
-        // ============================================
-        // UTILITY FUNCTIONS
-        // ============================================
-        function transliterate(word) {
-            const ua = {
-                "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "є": "ye",
-                "ж": "zh", "з": "z", "и": "y", "і": "i", "ї": "yi", "й": "y", "к": "k",
-                "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s",
-                "т": "t", "у": "u", "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh",
-                "щ": "shch", "ь": "", "ю": "yu", "я": "ya"
+            eventSource.onerror = (e) => {
+                if (eventSource.readyState === EventSource.CLOSED) return;
+                appendLog(taskId, "⚠️ Connection lost. Retrying...", "text-yellow-500");
+                updateStatusBadge(taskId, 'RECONNECTING', 'yellow', true);
             };
-            return word.toLowerCase()
-                .split('')
-                .map(char => ua[char] || char)
-                .join('')
-                .replace(/[^a-z0-9_]/g, '_')
-                .replace(/_{2,}/g, '_')
-                .replace(/^(\d)/, '_$1'); // Ensure doesn't start with number
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
+        function handleFinish(taskId, success) {
+            const btnRun = document.getElementById(`btn-run-${taskId}`);
+            btnRun.disabled = false;
+            btnRun.classList.remove('opacity-50', 'cursor-not-allowed');
+            btnRun.innerText = '↺ Rerun';
 
-        function updateStatus(message, classes) {
-            const el = document.getElementById('connectionStatus');
-            if (el) {
-                el.innerHTML = escapeHtml(message);
-                el.className = `mt-4 p-4 text-xs font-bold rounded-xl border transition-all ${classes}`;
-                el.classList.remove('hidden');
+            if (success) {
+                updateStatusBadge(taskId, 'COMPLETED', 'green');
+                appendLog(taskId, "🏁 Session finished successfully.", "text-green-500 font-bold border-t border-slate-700 pt-2 mt-2");
+            } else {
+                updateStatusBadge(taskId, 'FAILED', 'red');
+                appendLog(taskId, "🛑 Session finished with errors.", "text-red-500 font-bold border-t border-slate-700 pt-2 mt-2");
             }
         }
 
-        function showToast(message, type = 'info') {
-            const toast = document.createElement('div');
+        function hideTerminal(taskId) {
+            const box = document.getElementById(`terminal-box-${taskId}`);
+            box.classList.add('hidden');
+
+            // Опціонально: можна не закривати з'єднання, щоб воно йшло фоном,
+            // але для економії ресурсів при закритті вікна можна і закрити SSE, якщо задача завершена.
+            // Якщо задача біжить - краще залишити, або закрити і при відкритті знову підтягнеться History.
+
+            // Варіант: закриваємо SSE тільки якщо хочемо економити трафік
+            if (activeConnections[taskId]) {
+                activeConnections[taskId].close();
+                delete activeConnections[taskId];
+            }
+        }
+
+        function appendLog(taskId, text, colorClass = '') {
+            const container = document.getElementById(`terminal-logs-${taskId}`);
+            if (!container) return;
+
+            const div = document.createElement('div');
+
+            // Стилізація
+            if (colorClass) div.className = colorClass;
+            else if (text.includes('❌') || text.includes('Error')) div.className = 'text-red-400';
+            else if (text.includes('✅')) div.className = 'text-green-400';
+            else if (text.includes('🚀')) div.className = 'text-purple-400 font-bold mb-1';
+            else if (text.includes('WARN')) div.className = 'text-yellow-400';
+            else div.className = 'text-slate-300 opacity-90';
+
+            const time = new Date().toLocaleTimeString('uk-UA');
+            div.innerHTML = `<span class="text-slate-600 select-none mr-2 text-[10px]">[${time}]</span><span class="break-all">${text}</span>`;
+
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateStatusBadge(taskId, text, color, pulse = false) {
+            const badge = document.getElementById(`status-badge-${taskId}`);
+            if (!badge) return;
 
             const colors = {
-                success: 'bg-green-600',
-                error: 'bg-red-600',
-                warning: 'bg-orange-600',
-                info: 'bg-blue-600'
+                'green': 'bg-green-900/30 text-green-400 border-green-900',
+                'blue': 'bg-blue-900/30 text-blue-400 border-blue-900',
+                'red': 'bg-red-900/30 text-red-400 border-red-900',
+                'yellow': 'bg-yellow-900/30 text-yellow-400 border-yellow-900',
+                'slate': 'bg-slate-700 text-slate-400 border-slate-600'
             };
 
-            toast.className = `fixed bottom-8 right-8 ${colors[type]} text-white px-6 py-3 rounded-xl shadow-2xl z-[100] font-bold animate-in slide-in-from-bottom-4`;
-            toast.innerText = message;
-
-            document.body.appendChild(toast);
-
-            setTimeout(() => {
-                toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
+            badge.className = `px-2 py-0.5 rounded text-[10px] uppercase font-bold border transition-all ${colors[color] || colors['slate']} ${pulse ? 'animate-pulse' : ''}`;
+            badge.innerText = text;
         }
     </script>
 </div>
+</html>

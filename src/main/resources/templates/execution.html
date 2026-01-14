@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>ETL Process Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #e2e8f0; }
+        /* Кастомний скролбар для терміналу */
+        #terminal::-webkit-scrollbar { width: 8px; }
+        #terminal::-webkit-scrollbar-track { background: #1e293b; }
+        #terminal::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        #terminal::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col p-6">
+
+<div class="max-w-5xl mx-auto w-full">
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-2xl font-bold text-white flex items-center gap-3">
+                <span class="p-2 bg-blue-900/30 rounded-lg text-xl">🚀</span>
+                Моніторинг виконання
+            </h1>
+            <p class="text-slate-400 mt-1 text-sm font-mono">Task ID: <span th:text="${taskId}" class="text-blue-400">#</span></p>
+        </div>
+        <a th:href="@{/}" class="px-6 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-300 font-bold transition-all text-sm">
+            ⬅️ На головну
+        </a>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div class="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 backdrop-blur-sm">
+            <div class="text-xs text-slate-500 uppercase mb-2 font-bold tracking-wider">Статус процесу</div>
+            <div id="statusText" class="text-xl font-bold text-blue-400 flex items-center gap-3">
+                    <span class="relative flex h-3 w-3">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                    </span>
+                В процесі виконання...
+            </div>
+        </div>
+
+        <div class="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 backdrop-blur-sm">
+            <div class="text-xs text-slate-500 uppercase mb-2 font-bold tracking-wider">Імпортовано рядків</div>
+            <div id="rowCount" class="text-4xl font-black text-green-400 font-mono tracking-tight">0</div>
+        </div>
+    </div>
+
+    <div class="bg-[#0c0c0c] rounded-xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col h-[600px]">
+        <div class="bg-slate-900 px-4 py-2 flex items-center gap-2 border-b border-slate-800">
+            <div class="flex gap-1.5">
+                <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
+                <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
+            </div>
+            <div class="ml-4 text-xs text-slate-500 font-mono flex-1">
+                stream-log.sh — <span class="text-green-500">Connected via SSE</span>
+            </div>
+        </div>
+
+        <div id="terminal" class="flex-1 p-6 overflow-y-auto font-mono text-xs md:text-sm text-slate-300 space-y-1.5 scroll-smooth">
+        </div>
+    </div>
+</div>
+
+<script th:inline="javascript">
+    const taskId = [[${taskId}]];
+    const terminal = document.getElementById('terminal');
+    const statusText = document.getElementById('statusText');
+    const rowCount = document.getElementById('rowCount');
+
+    let eventSource = null;
+
+    function connectSSE() {
+        // Підключаємось до потоку подій для конкретного ID
+        eventSource = new EventSource(`/api/sync/stream/${taskId}`);
+
+        // --- 1. ОБРОБКА ЛОГІВ ---
+        eventSource.addEventListener('log', (e) => {
+            appendLog(e.data);
+        });
+
+        // --- 2. ОБРОБКА ПРОГРЕСУ (Лічильник) ---
+        eventSource.addEventListener('progress', (e) => {
+            rowCount.innerText = new Intl.NumberFormat('uk-UA').format(e.data);
+        });
+
+        // --- 3. ОБРОБКА ІСТОРІЇ (При рефреші сторінки) ---
+        eventSource.addEventListener('history', (e) => {
+            const state = JSON.parse(e.data);
+
+            // Відновлюємо лічильник
+            rowCount.innerText = new Intl.NumberFormat('uk-UA').format(state.rowsProcessed);
+
+            // Якщо задача вже завершена - оновлюємо статус
+            if(!state.running) {
+                finishState(state.success);
+                eventSource.close(); // Немає сенсу слухати далі
+            }
+
+            // Очищаємо термінал і вставляємо всю історію
+            terminal.innerHTML = '';
+            if (state.logs) {
+                state.logs.forEach(line => appendLog(line));
+            }
+        });
+
+        // --- 4. ЗАВЕРШЕННЯ ЗАДАЧІ ---
+        eventSource.addEventListener('finished', (e) => {
+            const success = e.data === 'true';
+            finishState(success);
+            eventSource.close();
+        });
+
+        // --- 5. ОБРОБКА ПОМИЛОК З'ЄДНАННЯ ---
+        eventSource.onerror = (e) => {
+            if (eventSource.readyState === EventSource.CLOSED) return;
+            console.error("SSE Error", e);
+            appendLog("⚠️ З'єднання розірвано. Спроба відновлення...", "text-yellow-500 font-bold");
+        };
+    }
+
+    function finishState(success) {
+        if (success) {
+            statusText.innerHTML = '<span class="text-green-400 flex items-center gap-2">✅ Завершено успішно</span>';
+        } else {
+            statusText.innerHTML = '<span class="text-red-400 flex items-center gap-2">❌ Помилка виконання</span>';
+        }
+    }
+
+    function appendLog(text, colorClass = '') {
+        const div = document.createElement('div');
+
+        // Стилізація різних типів повідомлень
+        if (colorClass) div.className = colorClass;
+        else if (text.includes('❌') || text.includes('Error') || text.includes('Exception')) div.className = 'text-red-400';
+        else if (text.includes('✅') || text.includes('Successfully')) div.className = 'text-green-400';
+        else if (text.includes('🚀')) div.className = 'text-purple-400 font-bold border-b border-purple-900/50 pb-2 mb-2 pt-2';
+        else if (text.includes('WARN')) div.className = 'text-yellow-400';
+        else if (text.includes('>>>') || text.includes('<<<')) div.className = 'text-blue-300 font-bold';
+        else div.className = 'text-slate-300 opacity-90';
+
+        const time = new Date().toLocaleTimeString('uk-UA');
+        div.innerHTML = `<span class="text-slate-600 select-none mr-3 text-[10px]">[${time}]</span><span class="break-all">${text}</span>`;
+
+        terminal.appendChild(div);
+
+        // Плавний скрол вниз
+        requestAnimationFrame(() => {
+            terminal.scrollTop = terminal.scrollHeight;
+        });
+    }
+
+    // Старт
+    connectSSE();
+</script>
+</body>
+</html>

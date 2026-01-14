@@ -1,54 +1,67 @@
 package com.etl.etltool.controller;
 
-import com.etl.etltool.core.entity.AppConfig;
-import com.etl.etltool.core.service.ConfigService;
 import com.etl.etltool.core.service.SyncService;
-import com.etl.etltool.dto.SyncResponse;
+import com.etl.etltool.core.service.TaskExecutionManager;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.stereotype.Controller; // Можна замінити на @RestController для API
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.List;
+import java.util.Map;
 
-@Controller
+@Slf4j
+@RestController // Краще використовувати RestController для API методів
+@RequestMapping("/api/sync") // Базовий шлях
 @RequiredArgsConstructor
 public class SyncController {
 
-    private final ConfigService configService;
     private final SyncService syncService;
+    private final TaskExecutionManager executionManager;
 
-    @GetMapping("/sync")
-    public String syncPage(Model model) {
-        model.addAttribute("config", configService.getConfig());
-        model.addAttribute("content", "sync :: content"); // Твій фрагмент
-        return "layout";
+    // Запуск ВСІХ задач
+    @PostMapping("/run")
+    public ResponseEntity<?> runAllSyncs() {
+        log.info("Запуск всіх задач...");
+        syncService.runAllActiveTasks();
+        return ResponseEntity.ok(Map.of("message", "All tasks started async"));
     }
 
-    // Новий метод для AJAX-запиту
-    @PostMapping("/api/sync/run")
-    @ResponseBody
-    public ResponseEntity<SyncResponse> runSyncApi() {
+    // Запуск ОДНІЄЇ задачі
+    @PostMapping("/run/{taskId}")
+    public ResponseEntity<?> runTaskApi(@PathVariable Long taskId) {
+        log.info("Запуск задачі ID: {}", taskId);
+        // 1. Ініціалізуємо статус в менеджері
+        executionManager.initTask(taskId);
+        // 2. Запускаємо асинхронно (метод повертає управління миттєво)
+        syncService.runTaskAsync(taskId);
+
+        return ResponseEntity.ok(Map.of("message", "Started", "taskId", taskId));
+    }
+
+
+    // Метод нічого не повертає по суті (void логіка), тільки "ОК"
+    @PostMapping("/start/{taskId}")
+    public ResponseEntity<?> startTask(@PathVariable Long taskId) {
+        log.info("API request: Start task {}", taskId);
         try {
-            AppConfig config = configService.getConfig();
+            // Ініціалізуємо статус в менеджері (щоб SSE мав що показувати)
+            executionManager.initTask(taskId);
 
-            // Викликаємо сервіс (який ми зараз допишемо)
-            int count = syncService.runSync(config);
+            // Запускаємо асинхронно (метод поверне управління миттєво)
+            syncService.runTaskAsync(taskId);
 
-            return ResponseEntity.ok(SyncResponse.builder()
-                    .success(true)
-                    .addedCount(count)
-                    .message("Синхронізація завершена")
-                    .logs(List.of("З'єднання встановлено", "Дані зчитано успішно", "Таблицю " + config.getTargetTableName() + " оновлено"))
-                    .build());
+            return ResponseEntity.ok(Map.of("message", "Task started", "taskId", taskId));
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(SyncResponse.builder()
-                    .success(false)
-                    .message("Помилка: " + e.getMessage())
-                    .build());
+            log.error("Failed to start task", e);
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @GetMapping(value = "/stream/{taskId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamLogs(@PathVariable Long taskId) {
+        return executionManager.subscribe(taskId);
     }
 }

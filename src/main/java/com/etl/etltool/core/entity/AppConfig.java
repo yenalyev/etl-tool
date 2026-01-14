@@ -1,7 +1,10 @@
 package com.etl.etltool.core.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "app_config")
@@ -15,26 +18,21 @@ public class AppConfig {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String googleSheetId;
+    // --- ГЛОБАЛЬНІ НАЛАШТУВАННЯ ---
+
+    // Шлях до JSON ключа (припускаємо, що Service Account один на всіх)
     private String serviceAccountKeyPath;
 
+    // Налаштування БД (одна цільова база)
     private String targetDbUrl;
     private String targetDbUser;
     private String targetDbPassword;
 
+    // Глобальні налаштування планувальника
     private Integer defaultChunkSize;
-    private String cronExpression;
-
+    private String cronExpression; // Загальний розклад запуску
     private boolean autoStartEnabled;
 
-    private String targetTableName;
-
-    @Column(name = "create_new_table", nullable = false, columnDefinition = "boolean default false")
-    private boolean createNewTable = false;
-
-    @Column(columnDefinition = "TEXT")
-    private String fieldMappingJson; // JSON представлення списку FieldMap
-
-    @Column(name = "sheet_name")
-    private String sheetName;
+    // --- ПОЛЯ НИЖЧЕ ВИДАЛЕНІ, БО ВОНИ ТЕПЕР У SyncTask ---
+    // googleSheetId, sheetName, targetTableName, createNewTable, fieldMappingJson
 }

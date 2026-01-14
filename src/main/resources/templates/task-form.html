@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<div th:fragment="content">
+  <style>
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    /* Стилі для валідації та анімацій */
+    .mapping-input.error { border-color: #ef4444 !important; background-color: rgba(239, 68, 68, 0.1); }
+    .shake { animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both; }
+    @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
+
+    /* Стилі для пропущених полів */
+    .mapping-row.skipped { opacity: 0.6; background-color: rgba(15, 23, 42, 0.3); border-style: dashed; }
+    .mapping-row.skipped input { text-decoration: line-through; color: #64748b; }
+    .mapping-row.skipped .arrow-icon { opacity: 0.2; }
+  </style>
+
+  <div class="max-w-4xl mx-auto">
+    <header class="mb-8 flex items-center gap-4">
+      <a th:href="@{/}" class="p-2.5 bg-slate-800 rounded-xl hover:bg-slate-700 transition-colors text-slate-400 border border-slate-700">
+        ⬅️ Назад
+      </a>
+      <div>
+        <h2 class="text-2xl font-bold text-blue-400" th:text="${task.id == null ? 'Створення задачі' : 'Редагування задачі'}">Task Editor</h2>
+        <p class="text-slate-500 text-sm mt-1">Налаштування джерела та мапінгу</p>
+      </div>
+    </header>
+
+    <input type="hidden" id="globalKeyPath" th:value="${globalConfig.serviceAccountKeyPath}">
+    <input type="hidden" id="globalDbUrl" th:value="${globalConfig.targetDbUrl}">
+    <input type="hidden" id="globalDbUser" th:value="${globalConfig.targetDbUser}">
+    <input type="hidden" id="globalDbPass" th:value="${globalConfig.targetDbPassword}">
+
+    <input type="hidden" id="savedTableName" th:value="${task.targetTableName}">
+    <input type="hidden" id="savedSheetName" th:value="${task.sheetName}">
+
+    <form th:action="@{/task/save}" th:object="${task}" method="post" onsubmit="return validateForm()" class="space-y-8">
+      <input type="hidden" th:field="*{id}">
+
+      <section class="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 shadow-xl">
+        <div class="flex flex-col md:flex-row gap-6">
+          <div class="flex-1">
+            <label class="block text-sm text-gray-400 mb-2 font-medium">Назва задачі</label>
+            <input type="text" th:field="*{taskName}" required placeholder="Напр: Імпорт товарів"
+                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none text-white font-bold placeholder:font-normal">
+          </div>
+          <div class="flex items-end pb-3">
+            <div class="flex items-center gap-3 bg-gray-900/50 px-4 py-3 rounded-xl border border-slate-700">
+              <input type="checkbox" th:field="*{enabled}" id="enabled" class="w-5 h-5 rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500">
+              <label for="enabled" class="text-gray-300 font-medium cursor-pointer">Активна задача</label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl relative overflow-hidden">
+        <h2 class="text-xl font-bold mb-6 text-blue-400">Google Sheets Source</h2>
+        <div class="space-y-6 relative z-10">
+          <div>
+            <label class="block text-sm text-gray-400 mb-2 font-medium">Spreadsheet ID</label>
+            <div class="flex gap-2">
+              <input type="text" th:field="*{googleSheetId}" id="googleSheetId" required
+                     placeholder="1BxiMVs0XRA5nFMdKvBdBAngmUU..."
+                     class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none text-gray-200 font-mono text-sm">
+              <button type="button" onclick="testGoogleConnection()" id="btnTestConn"
+                      class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 whitespace-nowrap">
+                Connect
+              </button>
+            </div>
+          </div>
+
+          <div id="sheetSelectionBlock" class="hidden animate-in fade-in slide-in-from-top-2">
+            <label class="block text-sm text-gray-400 mb-2 font-medium">Оберіть Аркуш (Sheet)</label>
+            <div class="flex gap-3">
+              <select th:field="*{sheetName}" id="sheetNameSelect" onchange="refreshMapping()"
+                      class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">-- Перший аркуш (Default) --</option>
+              </select>
+              <button type="button" onclick="loadSheetsList()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition-colors">🔄</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl">
+        <h2 class="text-xl font-bold mb-6 text-green-400">Target Database Table</h2>
+
+        <div class="space-y-6">
+          <div class="flex gap-1 p-1 bg-gray-900 rounded-xl w-fit border border-gray-700">
+            <button type="button" onclick="setTableMode(false)" id="modeSelect" class="px-6 py-2 rounded-lg text-sm font-bold transition-all text-gray-400">Існуюча таблиця</button>
+            <button type="button" onclick="setTableMode(true)" id="modeCreate" class="px-6 py-2 rounded-lg text-sm font-bold transition-all text-gray-400">Створити нову</button>
+          </div>
+          <input type="hidden" th:field="*{createNewTable}" id="createNewTable">
+
+          <div id="selectContainer">
+            <label class="block text-sm text-gray-400 mb-2 font-medium">Оберіть таблицю</label>
+            <select th:field="*{targetTableName}" id="tableSelect" onchange="refreshMapping()"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-purple-500">
+              <option value="">Завантаження списку...</option>
+            </select>
+          </div>
+
+          <div id="createContainer" class="hidden">
+            <label class="block text-sm text-gray-400 mb-2 font-medium">Назва нової таблиці</label>
+            <input type="text" id="newTableNameInput" oninput="syncTableName(this.value)" placeholder="new_table_name"
+                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-purple-500 font-mono">
+          </div>
+        </div>
+      </section>
+
+      <section id="mappingSection" class="hidden bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl border-t-4 border-t-orange-500/50">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-xl font-bold text-orange-400 flex items-center gap-2"><span>🔗</span> Field Mapping</h2>
+          <div class="flex gap-4 items-center">
+            <div id="mappingStats" class="text-xs font-mono text-slate-400"></div>
+            <div id="duplicateWarning" class="hidden text-red-400 text-xs font-bold bg-red-900/20 px-3 py-1 rounded-full animate-pulse">⚠️ Є дублікати!</div>
+          </div>
+        </div>
+
+        <div id="mappingContainer" class="space-y-3"></div>
+        <input type="hidden" th:field="*{fieldMappingJson}" id="fieldMappingJson">
+      </section>
+
+      <div class="flex justify-end pt-6">
+        <button type="submit" id="submitBtn" class="px-10 py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl font-black shadow-lg text-white uppercase tracking-wider transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+          Зберегти задачу
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <script th:inline="javascript">
+    const GLOBAL = {
+      keyPath: document.getElementById('globalKeyPath').value,
+      dbUrl: document.getElementById('globalDbUrl').value,
+      dbUser: document.getElementById('globalDbUser').value,
+      dbPass: document.getElementById('globalDbPass').value
+    };
+
+    let hasDuplicates = false;
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      const isCreate = document.getElementById('createNewTable').value === 'true';
+      const savedTable = document.getElementById('savedTableName').value;
+      const sheetId = document.getElementById('googleSheetId').value;
+
+      setTableMode(isCreate);
+
+      // 1. Вантажимо таблиці БД
+      if (GLOBAL.dbUrl && GLOBAL.dbUser) {
+        await loadDatabaseTables(savedTable);
+        if (isCreate && savedTable) {
+          const input = document.getElementById('newTableNameInput');
+          if(input) input.value = savedTable;
+        }
+      }
+
+      // 2. Якщо це редагування - відновлюємо мапінг
+      if (sheetId && GLOBAL.keyPath) {
+        document.getElementById('sheetSelectionBlock').classList.remove('hidden');
+        await loadSheetsList(true);
+        await refreshMapping();
+      }
+    });
+
+    // --- GOOGLE SHEETS & DB LOADERS ---
+    async function testGoogleConnection() {
+      const btn = document.getElementById('btnTestConn');
+      const sheetId = document.getElementById('googleSheetId').value;
+
+      if(!sheetId) { alert('Введіть Sheet ID'); return; }
+      if(!GLOBAL.keyPath) { alert('Глобальний API ключ не налаштовано!'); return; }
+
+      btn.disabled = true;
+      btn.innerText = 'Verifying...';
+
+      try {
+        const res = await fetch('/api/config/google-sheets/verify', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ jsonPath: GLOBAL.keyPath, spreadsheetId: sheetId })
+        });
+        const result = await res.json();
+
+        if(result.success) {
+          document.getElementById('sheetSelectionBlock').classList.remove('hidden');
+          await loadSheetsList();
+          await refreshMapping();
+          btn.innerText = '✅ OK';
+          setTimeout(() => btn.innerText = 'Connect', 2000);
+        } else {
+          alert('Помилка: ' + result.message);
+          btn.innerText = '❌ Error';
+        }
+      } catch(e) { alert('Connection error'); }
+      finally { btn.disabled = false; }
+    }
+
+    async function loadSheetsList(silent = false) {
+      const sheetId = document.getElementById('googleSheetId').value;
+      const select = document.getElementById('sheetNameSelect');
+      try {
+        const res = await fetch(`/api/config/google-sheets/list?sheetId=${encodeURIComponent(sheetId)}&keyPath=${encodeURIComponent(GLOBAL.keyPath)}`);
+        const data = await res.json();
+        if(data.success && data.sheets) {
+          select.innerHTML = '<option value="">-- Перший аркуш (Default) --</option>';
+          const savedSheet = document.getElementById('savedSheetName').value;
+          data.sheets.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.innerText = name;
+            if(name === savedSheet) opt.selected = true;
+            select.appendChild(opt);
+          });
+        }
+      } catch(e) {}
+    }
+
+    async function loadDatabaseTables(selectedValue = null) {
+      const select = document.getElementById('tableSelect');
+      select.innerHTML = '<option>Loading...</option>';
+      try {
+        const res = await fetch('/api/config/database/tables', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ url: GLOBAL.dbUrl, user: GLOBAL.dbUser, password: GLOBAL.dbPass })
+        });
+        const tables = await res.json();
+        select.innerHTML = '<option value="">-- Оберіть таблицю --</option>';
+        tables.forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t;
+          opt.innerText = t;
+          if(selectedValue && t === selectedValue) opt.selected = true;
+          select.appendChild(opt);
+        });
+      } catch(e) { select.innerHTML = '<option value="">Error</option>'; }
+    }
+
+    // --- MAPPING LOGIC (MAIN PART) ---
+    async function refreshMapping() {
+      const sheetId = document.getElementById('googleSheetId').value;
+      const sheetName = document.getElementById('sheetNameSelect').value;
+      const tableSelect = document.getElementById('tableSelect').value;
+      const isCreate = document.getElementById('createNewTable').value === 'true';
+
+      const container = document.getElementById('mappingContainer');
+      const section = document.getElementById('mappingSection');
+
+      if(!sheetId) { section.classList.add('hidden'); return; }
+      if(!isCreate && !tableSelect) { section.classList.add('hidden'); return; }
+
+      section.classList.remove('hidden');
+      container.innerHTML = '<div class="text-center p-4 text-blue-400 animate-pulse">Завантаження структури...</div>';
+
+      // 1. Отримуємо збережені дані
+      const savedJson = document.getElementById('fieldMappingJson').value;
+      const savedMap = new Map();
+      let hasSavedData = false;
+
+      if(savedJson) {
+        try {
+          const parsed = JSON.parse(savedJson);
+          if(parsed.length > 0) hasSavedData = true;
+          parsed.forEach(m => savedMap.set(m.sourceHeader, m.targetColumn));
+        } catch(e){}
+      }
+
+      try {
+        // 2. Вантажимо хедери Google Sheets
+        let url = `/api/config/google-headers?sheetId=${encodeURIComponent(sheetId)}&keyPath=${encodeURIComponent(GLOBAL.keyPath)}`;
+        if(sheetName) url += `&sheetName=${encodeURIComponent(sheetName)}`;
+
+        const hRes = await fetch(url);
+        const headers = await hRes.json();
+
+        // 3. Вантажимо колонки БД (якщо не режим створення)
+        let dbCols = [];
+        if(!isCreate) {
+          const dbRes = await fetch(`/api/config/database/columns?tableName=${encodeURIComponent(tableSelect)}&url=${encodeURIComponent(GLOBAL.dbUrl)}&user=${encodeURIComponent(GLOBAL.dbUser)}&password=${encodeURIComponent(GLOBAL.dbPass)}`);
+          dbCols = await dbRes.json();
+        }
+
+        container.innerHTML = '';
+
+        // 4. Рендеримо рядки
+        headers.forEach(header => {
+          const row = document.createElement('div');
+          row.className = "mapping-row flex items-center gap-4 bg-gray-900/40 p-3 rounded-xl border border-slate-700/50 transition-all duration-200";
+
+          // ЛОГІКА ВИЗНАЧЕННЯ ЗНАЧЕННЯ:
+          let inputValue = '';
+          let isSkipped = false;
+
+          if (savedMap.has(header)) {
+            // Якщо є збережене значення - беремо його (навіть якщо це кастомна назва)
+            inputValue = savedMap.get(header);
+          } else if (hasSavedData) {
+            // Якщо дані були збережені, але цього поля в JSON немає - значить воно було ПРОПУЩЕНЕ
+            isSkipped = true;
+            inputValue = '';
+          } else {
+            // Якщо це нова задача (немає збереженого JSON) - генеруємо дефолтне
+            inputValue = transliterate(header);
+          }
+
+          if(isSkipped) row.classList.add('skipped');
+
+          let inputHtml = '';
+
+          if(isCreate) {
+            // --- INPUT MODE (Створення таблиці) ---
+            inputHtml = `
+                            <div class="flex-1 flex gap-2">
+                                <div class="relative flex-1">
+                                    <input type="text" value="${inputValue}" data-source="${escapeHtml(header)}"
+                                        ${isSkipped ? 'disabled' : ''}
+                                        class="mapping-input w-full bg-gray-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-orange-300 focus:border-orange-500 outline-none transition-all"
+                                        oninput="handleInput(this)" placeholder="Пропущено">
+                                    <div class="error-msg hidden absolute -bottom-5 left-0 text-[10px] text-red-400 font-bold bg-red-900/10 px-1 rounded">Дублікат!</div>
+                                </div>
+                                <button type="button" onclick="toggleSkip(this)" class="p-1.5 rounded-lg text-xs font-bold border border-slate-700 hover:border-slate-500 transition-colors w-8 h-8 flex items-center justify-center ${isSkipped ? 'bg-blue-900/30 text-blue-400' : 'bg-slate-800 text-slate-500 hover:text-red-400'}">
+                                    ${isSkipped ? '↩️' : '✕'}
+                                </button>
+                            </div>
+                        `;
+          } else {
+            // --- SELECT MODE (Вибір існуючої) ---
+            inputHtml = `
+                            <select class="mapping-input flex-1 bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-green-300"
+                                    data-source="${escapeHtml(header)}" onchange="updateJson()">
+                                <option value="">-- Skip --</option>
+                                ${dbCols.map(col => {
+              // Логіка матчингу: збережене АБО транслітероване
+              const selected = (savedMap.has(header) && savedMap.get(header) === col) ||
+                      (!hasSavedData && transliterate(header) === col.toLowerCase());
+              return `<option value="${col}" ${selected?'selected':''}>${col}</option>`;
+            }).join('')}
+                            </select>
+                        `;
+          }
+
+          row.innerHTML = `
+                        <div class="w-1/3 text-xs text-slate-400 truncate select-none" title="${escapeHtml(header)}">${escapeHtml(header)}</div>
+                        <div class="text-slate-600 arrow-icon">➔</div>
+                        ${inputHtml}
+                    `;
+          container.appendChild(row);
+        });
+
+        updateJson();
+        if(isCreate) validateDuplicates();
+
+      } catch(e) {
+        console.error(e);
+        container.innerHTML = '<div class="text-red-400 text-center">Помилка завантаження структури.</div>';
+      }
+    }
+
+    // --- HANDLERS ---
+
+    // Перемикач пропуску поля
+    function toggleSkip(btn) {
+      const row = btn.closest('.mapping-row');
+      const input = row.querySelector('input');
+      const header = input.getAttribute('data-source');
+
+      if (row.classList.contains('skipped')) {
+        // RESTORE
+        row.classList.remove('skipped');
+        input.disabled = false;
+        input.value = transliterate(header); // Відновлюємо дефолтне значення
+        btn.innerHTML = '✕';
+        btn.className = "p-1.5 rounded-lg text-xs font-bold border border-slate-700 hover:border-slate-500 transition-colors w-8 h-8 flex items-center justify-center bg-slate-800 text-slate-500 hover:text-red-400";
+      } else {
+        // SKIP
+        row.classList.add('skipped');
+        input.disabled = true;
+        input.value = ''; // Очищуємо значення
+        btn.innerHTML = '↩️';
+        btn.className = "p-1.5 rounded-lg text-xs font-bold border border-slate-700 hover:border-slate-500 transition-colors w-8 h-8 flex items-center justify-center bg-blue-900/30 text-blue-400";
+
+        // Знімаємо помилки, якщо були
+        input.classList.remove('error');
+        input.nextElementSibling?.classList.add('hidden');
+      }
+
+      updateJson();
+      validateDuplicates();
+    }
+
+    function handleInput(input) {
+      // Дозволяємо лише a-z, 0-9 та _
+      const clean = input.value.replace(/[^a-zA-Z0-9_]/g, '');
+      if (input.value !== clean) input.value = clean;
+
+      updateJson();
+      validateDuplicates();
+    }
+
+    function validateDuplicates() {
+      const inputs = Array.from(document.querySelectorAll('input.mapping-input:not(:disabled)'));
+      const values = new Set();
+      hasDuplicates = false;
+
+      // Clear errors
+      inputs.forEach(inp => {
+        inp.classList.remove('error');
+        inp.nextElementSibling?.classList.add('hidden');
+      });
+
+      // Find duplicates
+      inputs.forEach(inp => {
+        const val = inp.value;
+        if(val && values.has(val)) {
+          hasDuplicates = true;
+          inp.classList.add('error');
+          inp.closest('.mapping-row').classList.add('shake');
+          setTimeout(() => inp.closest('.mapping-row').classList.remove('shake'), 500);
+          inp.nextElementSibling?.classList.remove('hidden');
+        }
+        if(val) values.add(val);
+      });
+
+      const warn = document.getElementById('duplicateWarning');
+      const btn = document.getElementById('submitBtn');
+
+      if(hasDuplicates) {
+        warn.classList.remove('hidden');
+        btn.disabled = true;
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+      } else {
+        warn.classList.add('hidden');
+        btn.disabled = false;
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+    }
+
+    function updateJson() {
+      const mappings = [];
+      let mappedCount = 0;
+
+      document.querySelectorAll('.mapping-input').forEach(el => {
+        // Додаємо в JSON тільки якщо є значення і поле не вимкнено (disabled = skipped)
+        if(el.value && !el.disabled) {
+          mappings.push({ sourceHeader: el.getAttribute('data-source'), targetColumn: el.value });
+          mappedCount++;
+        }
+      });
+
+      document.getElementById('fieldMappingJson').value = JSON.stringify(mappings);
+      document.getElementById('mappingStats').innerText = `${mappedCount} полів включено`;
+    }
+
+    function setTableMode(isCreate) {
+      document.getElementById('createNewTable').value = isCreate;
+      document.getElementById('selectContainer').classList.toggle('hidden', isCreate);
+      document.getElementById('createContainer').classList.toggle('hidden', !isCreate);
+
+      const btnCreate = document.getElementById('modeCreate');
+      const btnSelect = document.getElementById('modeSelect');
+
+      if(isCreate) {
+        btnCreate.className = "px-6 py-2 rounded-lg text-sm font-bold bg-purple-600 text-white shadow-lg transition-all";
+        btnSelect.className = "px-6 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white transition-all";
+      } else {
+        btnSelect.className = "px-6 py-2 rounded-lg text-sm font-bold bg-purple-600 text-white shadow-lg transition-all";
+        btnCreate.className = "px-6 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white transition-all";
+      }
+      refreshMapping();
+    }
+
+    function syncTableName(val) {
+      const sanitized = val.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+      document.getElementById('newTableNameInput').value = sanitized;
+
+      // Sync with hidden select logic (needed for backend compatibility if reusing same DTO)
+      const select = document.getElementById('tableSelect');
+      let opt = select.querySelector('option[data-temp="true"]');
+      if(!opt) {
+        opt = document.createElement('option');
+        opt.setAttribute('data-temp', 'true');
+        select.appendChild(opt);
+      }
+      opt.value = sanitized;
+      opt.innerText = sanitized;
+      select.value = sanitized;
+
+      updateJson();
+    }
+
+    function transliterate(word) {
+      const ua = {"а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","є":"ye","ж":"zh","з":"z","и":"y","і":"i","ї":"yi","й":"y","к":"k","л":"l","м":"m","н":"n","о":"o","п":"p","р":"r","с":"s","т":"t","у":"u","ф":"f","х":"kh","ц":"ts","ч":"ch","ш":"sh","щ":"shch","ь":"","ю":"yu","я":"ya"};
+      return word.toLowerCase().split('').map(char => ua[char] || char).join('').replace(/[^a-z0-9_]/g, '_').replace(/^(\d)/, '_$1');
+    }
+
+    function escapeHtml(text) {
+      const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+      return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+    }
+
+    function validateForm() {
+      if(hasDuplicates) { alert('Виправте дублі в мапінгу!'); return false; }
+      return true;
+    }
+  </script>
+</div>
+</html>

@@ -28,14 +28,12 @@ public class ConfigService {
     }
 
     private AppConfig updateExistingConfig(AppConfig existing, AppConfig incoming) {
-        existing.setGoogleSheetId(incoming.getGoogleSheetId());
         existing.setServiceAccountKeyPath(incoming.getServiceAccountKeyPath());
-        existing.setSheetName(incoming.getSheetName());
+
         existing.setTargetDbUrl(incoming.getTargetDbUrl());
         existing.setTargetDbUser(incoming.getTargetDbUser());
 
-        // оновлюємо пароль ТІЛЬКИ якщо з форми прийшло нове значення.
-        // Якщо поле пусте (користувач не вводив новий пароль), залишаємо старий, який вже є в базі.
+        // Зберігаємо логіку перевірки пароля
         if (incoming.getTargetDbPassword() != null && !incoming.getTargetDbPassword().isEmpty()) {
             existing.setTargetDbPassword(incoming.getTargetDbPassword());
         }
@@ -43,10 +41,8 @@ public class ConfigService {
         existing.setDefaultChunkSize(incoming.getDefaultChunkSize());
         existing.setCronExpression(incoming.getCronExpression());
         existing.setAutoStartEnabled(incoming.isAutoStartEnabled());
-        existing.setCreateNewTable(incoming.isCreateNewTable());
-        existing.setTargetTableName(incoming.getTargetTableName());
-        existing.setFieldMappingJson(incoming.getFieldMappingJson());
 
+        // Поля, пов'язані з таблицями, видалені
         return repository.save(existing);
     }
 }

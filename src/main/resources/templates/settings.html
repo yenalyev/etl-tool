@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<div th:fragment="content">
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-10 flex items-center gap-4">
+            <a th:href="@{/}" class="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors text-slate-400">
+                ⬅️ Назад
+            </a>
+            <div>
+                <h2 class="text-2xl font-bold text-slate-200">Глобальні налаштування</h2>
+                <p class="text-slate-500 text-sm mt-1">Єдине підключення для всіх задач</p>
+            </div>
+        </header>
+
+        <form th:action="@{/settings/save}" th:object="${config}" method="post" class="space-y-8">
+            <input type="hidden" th:field="*{id}">
+
+            <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl hover:border-slate-600 transition-all">
+                <h2 class="text-xl font-bold mb-6 text-blue-400 flex items-center gap-2">
+                    <span>🔑</span> Google Service Account
+                </h2>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2 font-medium">JSON Key Path</label>
+                    <div class="flex gap-3">
+                        <input type="text" th:field="*{serviceAccountKeyPath}" id="serviceAccountKeyPath" readonly
+                               placeholder="/path/to/credentials.json"
+                               class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-400 cursor-default focus:border-blue-500 outline-none">
+                        <button type="button" onclick="openFileBrowser()"
+                                class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-bold transition-colors text-white">
+                            📂 Browse
+                        </button>
+                    </div>
+                    <div id="emailStatus" class="mt-2 text-xs font-mono"></div>
+                </div>
+            </section>
+
+            <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl hover:border-slate-600 transition-all">
+                <h2 class="text-xl font-bold mb-6 text-green-400 flex items-center gap-2">
+                    <span>🗄️</span> Database Connection
+                </h2>
+                <div class="grid gap-6">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-2 font-medium">JDBC URL</label>
+                        <input type="text" th:field="*{targetDbUrl}" id="targetDbUrl"
+                               placeholder="jdbc:postgresql://localhost:5432/mydb"
+                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 focus:ring-2 focus:ring-green-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2 font-medium">User</label>
+                            <input type="text" th:field="*{targetDbUser}" id="targetDbUser"
+                                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 focus:ring-2 focus:ring-green-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2 font-medium">Password</label>
+                            <input type="password" th:field="*{targetDbPassword}" id="targetDbPassword"
+                                   placeholder="••••••••"
+                                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 focus:ring-2 focus:ring-green-500 outline-none">
+                        </div>
+                    </div>
+
+                    <div class="mt-2 flex justify-start">
+                        <button type="button" onclick="testDatabaseConnection()" id="btnTestDb"
+                                class="px-6 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-bold transition-all flex items-center gap-2">
+                            <span id="btnDbText">Test Connection</span>
+                            <div id="dbLoader" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        </button>
+                    </div>
+                    <div id="dbStatus" class="hidden p-3 rounded-lg text-xs font-bold"></div>
+                </div>
+            </section>
+
+            <div class="flex justify-end pt-4">
+                <button type="submit" class="px-12 py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl font-black shadow-lg uppercase tracking-widest transition-all active:scale-95 text-white">
+                    Зберегти налаштування
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script th:inline="javascript">
+        // --- FILE BROWSER LOGIC ---
+        async function openFileBrowser() {
+            const modal = document.getElementById('fileModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                await loadPath('');
+            }
+        }
+
+        async function loadPath(path) {
+            const list = document.getElementById('fileList');
+            const breadcrumbs = document.getElementById('fileBreadcrumbs');
+            if (!list) return;
+
+            list.innerHTML = '<div class="text-center p-4 text-slate-500">Loading...</div>';
+
+            try {
+                const response = await fetch(`/api/files/list?path=${encodeURIComponent(path || '')}`);
+                const data = await response.json();
+
+                if (breadcrumbs) breadcrumbs.innerText = data.currentPath || 'Root';
+
+                let html = '';
+                if (data.parentPath) {
+                    html += `<div onclick="loadPath('${escapeHtml(data.parentPath)}')" class="p-2 hover:bg-slate-700 cursor-pointer rounded flex items-center gap-2 text-slate-300">⬆️ ..</div>`;
+                }
+
+                data.items.forEach(item => {
+                    const icon = item.isDirectory ? '📁' : '📄';
+                    const action = item.isDirectory ? `loadPath('${escapeHtml(item.absolutePath)}')` : `selectFile('${escapeHtml(item.absolutePath)}')`;
+                    html += `<div onclick="${action}" class="p-2 hover:bg-slate-700 cursor-pointer rounded flex items-center gap-2 text-slate-200 border-b border-slate-700/50 last:border-0">
+                                <span class="text-lg">${icon}</span> <span class="truncate">${escapeHtml(item.name)}</span>
+                             </div>`;
+                });
+                list.innerHTML = html;
+            } catch (e) {
+                list.innerHTML = '<div class="text-red-400 p-2">Error loading files</div>';
+            }
+        }
+
+        async function selectFile(path) {
+            if (!path.endsWith('.json')) {
+                alert('Будь ласка, оберіть .json файл');
+                return;
+            }
+            document.getElementById('serviceAccountKeyPath').value = path;
+            document.getElementById('fileModal').classList.add('hidden');
+
+            // Check email
+            try {
+                const res = await fetch(`/api/files/get-email?path=${encodeURIComponent(path)}`);
+                const data = await res.json();
+                const status = document.getElementById('emailStatus');
+                if(data.email) {
+                    status.innerHTML = `<span class="text-green-400">✅ Valid Service Account: ${data.email}</span>`;
+                }
+            } catch(e) {}
+        }
+
+        function closeFileBrowser() {
+            document.getElementById('fileModal').classList.add('hidden');
+        }
+
+        // --- DB TEST LOGIC ---
+        async function testDatabaseConnection() {
+            const btn = document.getElementById('btnTestDb');
+            const btnText = document.getElementById('btnDbText');
+            const loader = document.getElementById('dbLoader');
+            const statusDiv = document.getElementById('dbStatus');
+
+            const url = document.getElementById('targetDbUrl').value;
+            const user = document.getElementById('targetDbUser').value;
+            const pass = document.getElementById('targetDbPassword').value;
+
+            btn.disabled = true;
+            btnText.innerText = 'Testing...';
+            loader.classList.remove('hidden');
+            statusDiv.classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/config/database/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, user, password: pass })
+                });
+                const result = await response.json();
+
+                statusDiv.innerText = result.message;
+                statusDiv.className = `p-3 rounded-lg text-xs font-bold border ${result.success ? 'bg-green-900/20 text-green-400 border-green-800' : 'bg-red-900/20 text-red-400 border-red-800'}`;
+                statusDiv.classList.remove('hidden');
+            } catch (e) {
+                statusDiv.innerText = "Connection Failed";
+                statusDiv.className = "p-3 rounded-lg text-xs font-bold bg-red-900/20 text-red-400 border border-red-800";
+                statusDiv.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btnText.innerText = 'Test Connection';
+                loader.classList.add('hidden');
+            }
+        }
+
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+    </script>
+</div>
+</html>
