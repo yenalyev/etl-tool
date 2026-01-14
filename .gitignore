@@ -1,0 +1,60 @@
+HELP.md
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+# Java & Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Локальні секрети та ключі
+*.json
+!src/main/resources/*.json # дозволити тільки несекретні json, якщо потрібно
+credentials/
+.env
+
+# Локальна база даних та логи нашого аплікації
+.etl/
+*.db
+*.mv.db
+logs/
+
+# MacOS / Windows системні файли
+.DS_Store
+Thumbs.db

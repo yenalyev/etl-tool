@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: etl-tool
+
+  datasource:
+    url: jdbc:sqlite:${user.home}/.etl/metadata.db
+    driver-class-name: org.sqlite.JDBC
+    # HikariCP (пул з'єднань) для SQLite краще обмежити одним з'єднанням
+    hikari:
+      maximum-pool-size: 1
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    show-sql: true
+
+  batch:
+    jdbc:
+      initialize-schema: always
+    job:
+      enabled: false # Щоб Batch не намагався запускати Job при кожному старті аплікації
+
+server:
+  port: 8081

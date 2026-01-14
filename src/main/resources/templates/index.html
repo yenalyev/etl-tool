@@ -1,0 +1,354 @@
+<div th:fragment="content">
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-10">
+            <h2 class="text-2xl font-bold text-blue-400">System Configuration</h2>
+            <p class="text-slate-500 text-sm mt-1">Налаштування доступу до джерел даних та цільової бази</p>
+        </header>
+
+        <form th:action="@{/settings/save}" th:object="${config}" method="post" onsubmit="updateMappingJson()" class="space-y-8">
+
+            <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl transition-all hover:border-slate-600">
+                <h2 class="text-xl font-bold mb-6 text-blue-400 flex items-center gap-3">
+                    <span class="p-2 bg-blue-900/30 rounded-lg text-sm">📊</span> Google Sheets
+                </h2>
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-2 font-medium">Google Sheet ID</label>
+                        <input type="text" th:field="*{googleSheetId}" id="googleSheetId"
+                               placeholder="1BxiMVs0XRA5nFMdKvBdBAngmUU..."
+                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none text-gray-200 transition-all">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-2 font-medium">Service Account JSON Path</label>
+                        <div class="flex gap-3">
+                            <input type="text" th:field="*{serviceAccountKeyPath}" id="serviceAccountKeyPath" readonly
+                                   class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-400 cursor-default">
+                            <button type="button" onclick="openFileBrowser()"
+                                    class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-bold transition-colors">📁 Browse</button>
+                            <button type="button" onclick="testGoogleConnection()" id="btnTestConn"
+                                    class="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold flex items-center transition-all">
+                                <span id="btnText">Verify</span>
+                                <svg id="loader" class="hidden spinner ml-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="connectionStatus" class="mt-4 p-4 rounded-xl text-sm hidden border animate-in fade-in slide-in-from-top-2"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl transition-all hover:border-slate-600">
+                <h2 class="text-xl font-bold mb-6 text-green-400 flex items-center gap-3">
+                    <span class="p-2 bg-green-900/30 rounded-lg text-sm">🗄️</span> Target Database
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="md:col-span-2">
+                        <label class="block text-sm text-gray-400 mb-2 font-medium">JDBC Connection URL</label>
+                        <input type="text" th:field="*{targetDbUrl}" id="targetDbUrl"
+                               placeholder="jdbc:postgresql://localhost:5432/db_name"
+                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 outline-none transition-all text-gray-200">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-2 font-medium">Username</label>
+                        <input type="text" th:field="*{targetDbUser}" id="targetDbUser"
+                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 outline-none transition-all text-gray-200">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-2 font-medium">Password</label>
+                        <input type="password" th:field="*{targetDbPassword}" id="targetDbPassword"
+                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 outline-none transition-all text-gray-200">
+                    </div>
+                </div>
+
+                <div class="mt-6 flex flex-col gap-3">
+                    <button type="button" onclick="testDatabaseConnection()" id="btnTestDb"
+                            class="w-full md:w-auto px-8 py-3 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-xl font-bold transition-all flex items-center justify-center gap-2">
+                        <span id="btnDbText">Test Database Connection</span>
+                        <svg id="dbLoader" class="hidden spinner h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                    <div id="dbStatus" class="hidden p-4 rounded-xl text-xs font-bold border transition-all animate-in fade-in"></div>
+                </div>
+            </section>
+
+            <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl transition-all hover:border-slate-600">
+                <h2 class="text-xl font-bold mb-6 text-purple-400 flex items-center gap-3">
+                    <span class="p-2 bg-purple-900/30 rounded-lg text-sm">📋</span> Target Table
+                </h2>
+
+                <div class="space-y-6">
+                    <div class="flex gap-4 p-1 bg-gray-900 rounded-xl w-fit border border-gray-700">
+                        <button type="button" onclick="setTableMode(false)" id="modeSelect"
+                                class="px-6 py-2 rounded-lg text-sm font-bold transition-all">
+                            Вибрати існуючу
+                        </button>
+                        <button type="button" onclick="setTableMode(true)" id="modeCreate"
+                                class="px-6 py-2 rounded-lg text-sm font-bold transition-all">
+                            Створити нову
+                        </button>
+                    </div>
+                    <input type="hidden" th:field="*{createNewTable}" id="createNewTable">
+
+                    <div id="selectContainer">
+                        <label class="block text-sm text-gray-400 mb-2 font-medium">Оберіть таблицю з бази</label>
+                        <select th:field="*{targetTableName}" id="tableSelect" onchange="refreshMapping()"
+                                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-purple-500 transition-all">
+                            <option value="">Спочатку перевірте з'єднання з БД...</option>
+                        </select>
+                    </div>
+
+                    <div id="createContainer" class="hidden">
+                        <label class="block text-sm text-gray-400 mb-2 font-medium">Назва нової таблиці</label>
+                        <input type="text" id="newTableNameInput"
+                               oninput="syncTableName(this.value)"
+                               placeholder="Напр: google_sheets_data"
+                               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-purple-500 transition-all">
+                    </div>
+                </div>
+            </section>
+
+            <section id="mappingSection" class="hidden bg-slate-800/50 p-8 rounded-2xl border border-dashed border-slate-600 shadow-xl mt-8 animate-in fade-in zoom-in-95">
+                <h2 class="text-xl font-bold mb-6 text-orange-400 flex items-center gap-3">
+                    <span class="p-2 bg-orange-900/30 rounded-lg text-sm">🔗</span> Field Mapping
+                </h2>
+                <div id="mappingContainer" class="space-y-3">
+                </div>
+                <input type="hidden" th:field="*{fieldMappingJson}" id="fieldMappingJson">
+            </section>
+
+            <div class="flex justify-end pt-4">
+                <button type="submit" class="px-12 py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl font-black shadow-lg uppercase tracking-widest transition-all active:scale-95">
+                    Save All Settings
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // Ініціалізація стану при завантаженні
+        document.addEventListener("DOMContentLoaded", () => {
+            const isCreateMode = document.getElementById('createNewTable').value === 'true';
+            setTableMode(isCreateMode);
+        });
+
+        // --- ДОПОМІЖНІ UI ФУНКЦІЇ ---
+        function updateStatus(message, classes) {
+            const statusDiv = document.getElementById('connectionStatus');
+            if (!statusDiv) return;
+            statusDiv.innerHTML = message;
+            statusDiv.className = `mt-4 p-4 text-xs font-bold rounded-xl border transition-all duration-300 ${classes}`;
+            statusDiv.classList.remove('hidden');
+        }
+
+        function showDbStatus(message, classes) {
+            const statusDiv = document.getElementById('dbStatus');
+            if (!statusDiv) return;
+            statusDiv.innerHTML = message;
+            statusDiv.className = `p-4 rounded-xl text-xs font-bold border transition-all ${classes}`;
+            statusDiv.classList.remove('hidden');
+        }
+
+        // --- FILE BROWSER ---
+        async function openFileBrowser() {
+            document.getElementById('fileModal').classList.remove('hidden');
+            await loadPath("");
+        }
+
+        function closeFileBrowser() {
+            document.getElementById('fileModal').classList.add('hidden');
+        }
+
+        async function loadPath(path) {
+            const listEl = document.getElementById('fileList');
+            const breadEl = document.getElementById('fileBreadcrumbs');
+            listEl.innerHTML = '<div class="p-10 text-center text-blue-400 animate-pulse italic">Reading filesystem...</div>';
+            try {
+                const response = await fetch(`/api/files/list?path=${encodeURIComponent(path)}`);
+                const data = await response.json();
+                breadEl.innerText = data.currentPath || "Мій комп'ютер";
+                listEl.innerHTML = "";
+                if (data.currentPath !== "Мій комп'ютер") addFileRow("📁 .. Назад", data.parentPath || "", true);
+                data.items.forEach(item => addFileRow((item.isDirectory ? "📁 " : "📄 ") + item.name, item.absolutePath, item.isDirectory));
+            } catch (e) { listEl.innerHTML = '<div class="p-10 text-center text-red-500">Сервер недоступний</div>'; }
+        }
+
+        function addFileRow(label, path, isDir) {
+            const listEl = document.getElementById('fileList');
+            const div = document.createElement('div');
+            div.className = "p-3 rounded-xl cursor-pointer hover:bg-slate-700/50 text-sm text-slate-300 hover:text-white transition-all";
+            div.innerText = label;
+            div.onclick = () => isDir ? loadPath(path) : selectFile(path);
+            listEl.appendChild(div);
+        }
+
+        async function selectFile(path) {
+            document.getElementById('serviceAccountKeyPath').value = path;
+            closeFileBrowser();
+            try {
+                const response = await fetch(`/api/files/get-email?path=${encodeURIComponent(path)}`);
+                const data = await response.json();
+                if (data.email) updateStatus(`🔑 Email: <code class="bg-black/40 px-2 rounded">${data.email}</code>`, "text-blue-300 bg-blue-900/10 border-blue-900");
+            } catch (e) {}
+        }
+
+        // --- CONNECTION TESTS ---
+        async function testGoogleConnection() {
+            const btn = document.getElementById('btnTestConn');
+            const btnText = document.getElementById('btnText');
+            const loader = document.getElementById('loader');
+            const path = document.getElementById('serviceAccountKeyPath').value;
+            const sheetId = document.getElementById('googleSheetId').value;
+
+            btn.disabled = true; loader.classList.remove('hidden'); btnText.innerText = 'Verify...';
+            try {
+                const response = await fetch('/api/config/google-sheets/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jsonPath: path, spreadsheetId: sheetId })
+                });
+                const result = await response.json();
+                updateStatus(result.message, result.success ? "text-green-400 border-green-900 bg-green-900/10" : "text-red-400 border-red-900 bg-red-900/10");
+                if (result.success) refreshMapping();
+            } catch (e) { updateStatus("❌ Server error", "text-red-500 bg-red-900/10 border-red-900"); }
+            finally { btn.disabled = false; loader.classList.add('hidden'); btnText.innerText = 'Verify'; }
+        }
+
+        async function testDatabaseConnection() {
+            const btn = document.getElementById('btnTestDb');
+            const btnText = document.getElementById('btnDbText');
+            const loader = document.getElementById('dbLoader');
+            const url = document.getElementById('targetDbUrl').value;
+            const user = document.getElementById('targetDbUser').value;
+            const pass = document.getElementById('targetDbPassword').value;
+
+            btn.disabled = true; loader.classList.remove('hidden'); btnText.innerText = 'Connecting...';
+            try {
+                const response = await fetch('/api/config/database/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, user, password: pass })
+                });
+                const result = await response.json();
+                showDbStatus(result.success ? "✅ " + result.message : "❌ " + result.message, result.success ? "text-green-400 border-green-900 bg-green-900/10" : "text-red-400 border-red-900 bg-red-900/10");
+                if (result.success) {
+                    await loadDatabaseTables(url, user, pass);
+                    refreshMapping();
+                }
+            } catch (e) { showDbStatus("❌ Connection error", "text-red-500 bg-red-900/10 border-red-900"); }
+            finally { btn.disabled = false; loader.classList.add('hidden'); btnText.innerText = 'Test Database Connection'; }
+        }
+
+        async function loadDatabaseTables(url, user, pass) {
+            const select = document.getElementById('tableSelect');
+            select.innerHTML = '<option>Loading...</option>';
+            try {
+                const response = await fetch('/api/config/database/tables', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, user, password: pass })
+                });
+                const tables = await response.json();
+                select.innerHTML = '<option value="">-- Оберіть таблицю --</option>';
+                tables.forEach(table => {
+                    const opt = document.createElement('option');
+                    opt.value = table; opt.innerText = table; select.appendChild(opt);
+                });
+            } catch (e) { select.innerHTML = '<option value="">Failed to load</option>'; }
+        }
+
+        // --- TABLE LOGIC ---
+        function setTableMode(isCreate) {
+            document.getElementById('createNewTable').value = isCreate;
+            document.getElementById('selectContainer').classList.toggle('hidden', isCreate);
+            document.getElementById('createContainer').classList.toggle('hidden', !isCreate);
+
+            document.getElementById('modeCreate').className = isCreate ? "px-6 py-2 rounded-lg text-sm font-bold bg-purple-600 text-white transition-all shadow-lg" : "px-6 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white transition-all";
+            document.getElementById('modeSelect').className = !isCreate ? "px-6 py-2 rounded-lg text-sm font-bold bg-purple-600 text-white transition-all shadow-lg" : "px-6 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white transition-all";
+
+            refreshMapping();
+        }
+
+        function syncTableName(value) {
+            const select = document.getElementById('tableSelect');
+            const sanitized = value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+            document.getElementById('newTableNameInput').value = sanitized;
+            if (sanitized === "") return;
+
+            let exists = false;
+            for (let i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === sanitized) { select.selectedIndex = i; exists = true; break; }
+            }
+            if (!exists) {
+                const oldTemp = select.querySelector('option[data-temp="true"]');
+                if (oldTemp) oldTemp.remove();
+                const newOpt = document.createElement('option');
+                newOpt.value = sanitized; newOpt.text = sanitized + " (нова)"; newOpt.selected = true;
+                newOpt.setAttribute('data-temp', 'true'); select.appendChild(newOpt);
+            }
+            select.value = sanitized;
+            updateMappingJson();
+        }
+
+        // --- FIELD MAPPING LOGIC ---
+        function transliterate(word) {
+            const ua = {"а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","є":"ye","ж":"zh","з":"z","и":"y","і":"i","ї":"yi","й":"y","к":"k","л":"l","м":"m","н":"n","о":"o","п":"p","р":"r","с":"s","т":"t","у":"u","ф":"f","х":"kh","ц":"ts","ч":"ch","ш":"sh","щ":"shch","ь":"","ю":"yu","я":"ya"};
+            return word.toLowerCase().split('').map(char => ua[char] || char).join('').replace(/[^a-z0-9_]/g, '_').replace(/_{2,}/g, '_');
+        }
+
+        async function refreshMapping() {
+            const sheetId = document.getElementById('googleSheetId').value;
+            const keyPath = document.getElementById('serviceAccountKeyPath').value;
+            const tableName = document.getElementById('tableSelect').value;
+            const isCreate = document.getElementById('createNewTable').value === 'true';
+
+            if (!sheetId || !keyPath || (!isCreate && !tableName)) {
+                document.getElementById('mappingSection').classList.add('hidden');
+                return;
+            }
+
+            const container = document.getElementById('mappingContainer');
+            container.innerHTML = '<div class="text-center p-4 text-slate-500 italic">Завантаження структури...</div>';
+            document.getElementById('mappingSection').classList.remove('hidden');
+
+            try {
+                const hResp = await fetch(`/api/config/google-headers?sheetId=${sheetId}&keyPath=${encodeURIComponent(keyPath)}`);
+                const headers = await hResp.json();
+
+                let dbColumns = [];
+                if (!isCreate) {
+                    const dbResp = await fetch(`/api/config/database/columns?tableName=${tableName}&url=${encodeURIComponent(document.getElementById('targetDbUrl').value)}&user=${document.getElementById('targetDbUser').value}&password=${document.getElementById('targetDbPassword').value}`);
+                    dbColumns = await dbResp.json();
+                }
+
+                container.innerHTML = "";
+                headers.forEach(header => {
+                    const row = document.createElement('div');
+                    row.className = "flex items-center gap-4 bg-gray-900/40 p-3 rounded-xl border border-slate-700/50";
+                    let targetHtml = isCreate
+                        ? `<input type="text" value="${transliterate(header)}" class="mapping-input flex-1 bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-orange-300" data-source="${header}">`
+                        : `<select class="mapping-input flex-1 bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-green-300" data-source="${header}">
+                             <option value="">-- Пропустити --</option>
+                             ${dbColumns.map(col => `<option value="${col}" ${transliterate(header) === col.toLowerCase() ? 'selected' : ''}>${col}</option>`).join('')}
+                           </select>`;
+                    row.innerHTML = `<div class="w-1/3 text-xs text-slate-400 truncate">${header}</div><div class="text-slate-700">➔</div>` + targetHtml;
+                    container.appendChild(row);
+                });
+
+                container.querySelectorAll('.mapping-input').forEach(el => el.addEventListener('change', updateMappingJson));
+                updateMappingJson();
+            } catch (e) { container.innerHTML = `<div class="text-red-500 text-xs p-4">Помилка завантаження структури</div>`; }
+        }
+
+        function updateMappingJson() {
+            const mappings = [];
+            document.querySelectorAll('.mapping-input').forEach(el => {
+                if(el.value) mappings.push({ sourceHeader: el.getAttribute('data-source'), targetColumn: el.value });
+            });
+            document.getElementById('fieldMappingJson').value = JSON.stringify(mappings);
+        }
+    </script>
+</div>
