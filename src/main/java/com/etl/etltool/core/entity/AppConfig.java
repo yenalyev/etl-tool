@@ -34,4 +34,7 @@ public class AppConfig {
 
     @Column(columnDefinition = "TEXT")
     private String fieldMappingJson; // JSON представлення списку FieldMap
+
+    @Column(name = "sheet_name")
+    private String sheetName;
 }

@@ -7,19 +7,25 @@
 
         <input type="hidden" id="initialTableName" th:value="${config.targetTableName}">
 
-        <form th:action="@{/settings/save}" th:object="${config}" method="post" onsubmit="updateMappingJson()" class="space-y-8">
+        <form th:action="@{/settings/save}" th:object="${config}" method="post" onsubmit="return validateForm()" class="space-y-8">
 
+            <!-- ============================================ -->
+            <!-- GOOGLE SHEETS SECTION -->
+            <!-- ============================================ -->
             <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl transition-all hover:border-slate-600">
                 <h2 class="text-xl font-bold mb-6 text-blue-400 flex items-center gap-3">
                     <span class="p-2 bg-blue-900/30 rounded-lg text-sm">📊</span> Google Sheets
                 </h2>
                 <div class="space-y-6">
+                    <!-- Google Sheet ID -->
                     <div>
                         <label class="block text-sm text-gray-400 mb-2 font-medium">Google Sheet ID</label>
                         <input type="text" th:field="*{googleSheetId}" id="googleSheetId"
                                placeholder="1BxiMVs0XRA5nFMdKvBdBAngmUU..."
                                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none text-gray-200 transition-all">
                     </div>
+
+                    <!-- Service Account Key Path -->
                     <div>
                         <label class="block text-sm text-gray-400 mb-2 font-medium">Service Account JSON Path</label>
                         <div class="flex gap-3">
@@ -38,9 +44,35 @@
                         </div>
                         <div id="connectionStatus" class="mt-4 p-4 rounded-xl text-sm hidden border animate-in fade-in slide-in-from-top-2"></div>
                     </div>
+
+                    <!-- Sheet Selection Block -->
+                    <div id="sheetSelectionBlock" class="hidden animate-in fade-in slide-in-from-top-2">
+                        <label class="block text-sm text-gray-400 mb-2 font-medium">
+                            Аркуш (Sheet)
+                            <span class="text-xs text-slate-500 ml-2">опціонально</span>
+                        </label>
+                        <div class="flex gap-3">
+                            <select th:field="*{sheetName}" id="sheetNameSelect"
+                                    onchange="handleSheetChange()"
+                                    class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-gray-200 outline-none focus:ring-2 focus:ring-blue-500 transition-all">
+                                <option value="">-- Перший аркуш за замовчуванням --</option>
+                            </select>
+                            <button type="button" onclick="loadSheetsList()" id="btnLoadSheets"
+                                    class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-bold transition-colors flex items-center gap-2">
+                                <span id="btnLoadSheetsText">🔄</span>
+                            </button>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-2 flex items-start gap-2">
+                            <span>💡</span>
+                            <span>Якщо не обрано конкретний аркуш - система автоматично використає перший аркуш таблиці</span>
+                        </p>
+                    </div>
                 </div>
             </section>
 
+            <!-- ============================================ -->
+            <!-- TARGET DATABASE SECTION -->
+            <!-- ============================================ -->
             <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl transition-all hover:border-slate-600">
                 <h2 class="text-xl font-bold mb-6 text-green-400 flex items-center gap-3">
                     <span class="p-2 bg-green-900/30 rounded-lg text-sm">🗄️</span> Target Database
@@ -75,11 +107,15 @@
                 </div>
             </section>
 
+            <!-- ============================================ -->
+            <!-- TARGET CONFIGURATION SECTION -->
+            <!-- ============================================ -->
             <section class="bg-slate-800/50 p-8 rounded-2xl border border-slate-700 shadow-xl transition-all hover:border-slate-600">
                 <h2 class="text-xl font-bold mb-6 text-purple-400 flex items-center gap-3">
                     <span class="p-2 bg-purple-900/30 rounded-lg text-sm">📋</span> Target Configuration
                 </h2>
 
+                <!-- READ-ONLY MODE -->
                 <div id="readOnlyMode" th:if="${not #strings.isEmpty(config.targetTableName)}" class="animate-in fade-in">
                     <div class="bg-gray-900/50 rounded-xl p-6 border border-gray-700/50">
                         <div class="flex justify-between items-start mb-6">
@@ -92,25 +128,28 @@
                             </div>
                             <button type="button" onclick="switchToEditMode()"
                                     class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-bold rounded-lg border border-slate-600 hover:text-white transition-all flex items-center gap-2">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                </svg>
                                 Змінити налаштування
                             </button>
                         </div>
 
                         <div class="space-y-3">
                             <h3 class="text-sm text-gray-400 uppercase tracking-wider font-bold mb-3">Активний мапінг полів</h3>
-                            <div id="readOnlyMappingList" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            </div>
+                            <div id="readOnlyMappingList" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
                         </div>
                     </div>
                 </div>
 
+                <!-- EDIT MODE -->
                 <div id="editModeWrapper" th:classappend="${not #strings.isEmpty(config.targetTableName)} ? 'hidden' : ''">
-
                     <div class="space-y-6">
                         <div class="flex gap-4 p-1 bg-gray-900 rounded-xl w-fit border border-gray-700">
-                            <button type="button" onclick="setTableMode(false)" id="modeSelect" class="px-6 py-2 rounded-lg text-sm font-bold transition-all">Вибрати існуючу</button>
-                            <button type="button" onclick="setTableMode(true)" id="modeCreate" class="px-6 py-2 rounded-lg text-sm font-bold transition-all">Створити нову</button>
+                            <button type="button" onclick="setTableMode(false)" id="modeSelect"
+                                    class="px-6 py-2 rounded-lg text-sm font-bold transition-all">Вибрати існуючу</button>
+                            <button type="button" onclick="setTableMode(true)" id="modeCreate"
+                                    class="px-6 py-2 rounded-lg text-sm font-bold transition-all">Створити нову</button>
                         </div>
                         <input type="hidden" th:field="*{createNewTable}" id="createNewTable">
 
@@ -140,6 +179,7 @@
                 <input type="hidden" th:field="*{fieldMappingJson}" id="fieldMappingJson">
             </section>
 
+            <!-- SUBMIT BUTTON -->
             <div class="flex justify-end pt-4">
                 <button type="submit" id="submitBtn"
                         th:text="${not #strings.isEmpty(config.targetTableName)} ? 'Save Changes' : 'Save Configuration'"
@@ -150,25 +190,84 @@
         </form>
     </div>
 
+    <!-- ============================================ -->
+    <!-- JAVASCRIPT -->
+    <!-- ============================================ -->
     <script th:inline="javascript">
-        // Отримуємо прапорець з Thymeleaf
-        const hasSavedConfig = [[${not #strings.isEmpty(config.targetTableName)}]];
+        'use strict';
 
+        // ============================================
+        // CONSTANTS
+        // ============================================
+        const MESSAGES = {
+            DEFAULT_SHEET: '-- Перший аркуш за замовчуванням --',
+            LOADING: 'Завантаження...',
+            LOADING_ERROR: '❌ Помилка завантаження',
+            FILL_ALL_FIELDS: '⚠️ Заповніть всі поля',
+            SPECIFY_CREDENTIALS: '⚠️ Спочатку вкажіть Sheet ID та JSON ключ',
+            SELECT_JSON: '⚠️ Оберіть JSON файл з credentials'
+        };
+
+        // ============================================
+        // STATE MANAGEMENT
+        // ============================================
+        let isLoadingSheets = false;
+        let isRefreshingMapping = false;
+
+        const hasSavedConfig = /*[[${not #strings.isEmpty(config.targetTableName)}]]*/ false;
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
         document.addEventListener("DOMContentLoaded", async () => {
-            if (hasSavedConfig) {
-                // Якщо є збережений конфіг - показуємо його у режимі Read Only
-                renderReadOnlyMapping();
-            } else {
-                // Якщо немає - ініціалізуємо форму редагування
-                await initializeEditMode();
+            try {
+                if (hasSavedConfig) {
+                    renderReadOnlyMapping();
+
+                    const sheetId = document.getElementById('googleSheetId')?.value;
+                    const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
+                    if (sheetId && keyPath) {
+                        toggleSheetSelection(true);
+                    }
+                } else {
+                    await initializeEditMode();
+                }
+            } catch (e) {
+                console.error('Initialization error:', e);
+                showToast('❌ Помилка ініціалізації', 'error');
             }
         });
 
+        // ============================================
+        // READ-ONLY MODE RENDERING
+        // ============================================
         function renderReadOnlyMapping() {
             const jsonField = document.getElementById('fieldMappingJson');
             const container = document.getElementById('readOnlyMappingList');
-            if (!jsonField || !container) return;
+            const readOnlyMode = document.getElementById('readOnlyMode');
 
+            if (!jsonField || !container || !readOnlyMode) return;
+
+            // Show selected sheet info
+            const sheetName = /*[[${config.sheetName}]]*/ null;
+            if (sheetName) {
+                const existingInfo = readOnlyMode.querySelector('.sheet-info');
+                if (!existingInfo) {
+                    const sheetInfo = document.createElement('div');
+                    sheetInfo.className = 'sheet-info mb-4 p-3 bg-blue-900/10 border border-blue-800/30 rounded-lg';
+                    sheetInfo.innerHTML = `
+                        <div class="text-xs text-blue-400 uppercase tracking-wider font-bold mb-1">Обраний аркуш:</div>
+                        <div class="text-sm text-blue-300 font-mono">${escapeHtml(sheetName)}</div>
+                    `;
+                    const mappingSection = container.parentElement;
+                    const header = mappingSection.querySelector('h3');
+                    if (header) {
+                        mappingSection.insertBefore(sheetInfo, header);
+                    }
+                }
+            }
+
+            // Render mapping
             try {
                 const mappings = JSON.parse(jsonField.value || '[]');
                 if (mappings.length === 0) {
@@ -180,11 +279,11 @@
                     <div class="flex items-center justify-between p-3 bg-gray-800 rounded-lg border border-gray-700">
                         <div class="flex items-center gap-2 overflow-hidden">
                             <span class="text-orange-300 text-xs font-mono bg-orange-900/20 px-2 py-1 rounded">G</span>
-                            <span class="text-slate-300 text-sm truncate" title="${m.sourceHeader}">${m.sourceHeader}</span>
+                            <span class="text-slate-300 text-sm truncate" title="${escapeHtml(m.sourceHeader)}">${escapeHtml(m.sourceHeader)}</span>
                         </div>
                         <span class="text-slate-600 text-xs">➔</span>
                         <div class="flex items-center gap-2 overflow-hidden justify-end">
-                            <span class="text-green-300 text-sm font-bold truncate" title="${m.targetColumn}">${m.targetColumn}</span>
+                            <span class="text-green-300 text-sm font-bold truncate" title="${escapeHtml(m.targetColumn)}">${escapeHtml(m.targetColumn)}</span>
                             <span class="text-green-300 text-xs font-mono bg-green-900/20 px-2 py-1 rounded">DB</span>
                         </div>
                     </div>
@@ -195,57 +294,63 @@
             }
         }
 
+        // ============================================
+        // EDIT MODE MANAGEMENT
+        // ============================================
         async function switchToEditMode() {
-            // Ховаємо блок перегляду
             const readOnlyMode = document.getElementById('readOnlyMode');
-            if(readOnlyMode) readOnlyMode.classList.add('hidden');
-
-            // Показуємо блок редагування
             const editModeWrapper = document.getElementById('editModeWrapper');
-            if(editModeWrapper) editModeWrapper.classList.remove('hidden');
 
-            // Ініціалізуємо дані (тягнемо таблиці з БД)
+            if (readOnlyMode) readOnlyMode.classList.add('hidden');
+            if (editModeWrapper) editModeWrapper.classList.remove('hidden');
+
             await initializeEditMode();
         }
 
         async function initializeEditMode() {
-            const createMode = document.getElementById('createNewTable').value === 'true';
-            const savedTable = document.getElementById('initialTableName').value;
-            const url = document.getElementById('targetDbUrl').value;
-            const user = document.getElementById('targetDbUser').value;
-            const pass = document.getElementById('targetDbPassword').value;
+            const createMode = document.getElementById('createNewTable')?.value === 'true';
+            const savedTable = document.getElementById('initialTableName')?.value;
+            const url = document.getElementById('targetDbUrl')?.value;
+            const user = document.getElementById('targetDbUser')?.value;
+            const pass = document.getElementById('targetDbPassword')?.value;
 
             setTableMode(createMode);
 
             if (url && user) {
-                // Завантажуємо таблиці та відновлюємо вибір
                 await loadDatabaseTables(url, user, pass, savedTable);
 
                 if (createMode && savedTable) {
                     const newInput = document.getElementById('newTableNameInput');
-                    if(newInput) newInput.value = savedTable;
+                    if (newInput) newInput.value = savedTable;
                 }
 
-                // Активуємо мапінг (тягнемо заголовки)
-                if (document.getElementById('googleSheetId').value && document.getElementById('serviceAccountKeyPath').value) {
+                const sheetId = document.getElementById('googleSheetId')?.value;
+                const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
+
+                if (sheetId && keyPath) {
                     await refreshMapping();
                 }
             }
         }
 
-        // --- ДАЛІ ЙДУТЬ СТАНДАРТНІ ФУНКЦІЇ БЕЗ ЗМІН ЛОГІКИ ---
-
+        // ============================================
+        // DATABASE FUNCTIONS
+        // ============================================
         async function loadDatabaseTables(url, user, pass, selectValue = null) {
             const select = document.getElementById('tableSelect');
             if (!select) return;
 
             try {
-                select.innerHTML = '<option>Loading...</option>'; // Show loading state
+                select.innerHTML = `<option>${MESSAGES.LOADING}</option>`;
+
                 const response = await fetch('/api/config/database/tables', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url, user, password: pass })
                 });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
                 const tables = await response.json();
 
                 select.innerHTML = '<option value="">-- Оберіть таблицю --</option>';
@@ -257,71 +362,300 @@
                     select.appendChild(opt);
                 });
             } catch (e) {
-                select.innerHTML = '<option value="">Помилка завантаження</option>';
+                console.error('Error loading tables:', e);
+                select.innerHTML = `<option value="">${MESSAGES.LOADING_ERROR}</option>`;
             }
         }
 
-        async function refreshMapping() {
-            const sheetId = document.getElementById('googleSheetId').value;
-            const keyPath = document.getElementById('serviceAccountKeyPath').value;
-            const tableName = document.getElementById('tableSelect').value;
-            const isCreate = document.getElementById('createNewTable').value === 'true';
-            const mappingSection = document.getElementById('mappingSection');
-            const container = document.getElementById('mappingContainer');
+        async function testDatabaseConnection() {
+            const btn = document.getElementById('btnTestDb');
+            const btnText = document.getElementById('btnDbText');
+            const loader = document.getElementById('dbLoader');
+            const url = document.getElementById('targetDbUrl')?.value;
+            const user = document.getElementById('targetDbUser')?.value;
+            const pass = document.getElementById('targetDbPassword')?.value;
 
-            // Show section only if we have necessary data
-            if (!sheetId || !keyPath || (!isCreate && !tableName)) {
-                if(mappingSection) mappingSection.classList.add('hidden');
+            if (!url || !user) {
+                showToast(MESSAGES.FILL_ALL_FIELDS, 'warning');
                 return;
             }
 
-            if(mappingSection) mappingSection.classList.remove('hidden');
-            if(container) container.innerHTML = '<div class="text-blue-400 animate-pulse text-center p-4">Завантаження структури Google та БД...</div>';
+            btn.disabled = true;
+            if (btnText) btnText.innerText = 'Connecting...';
+            if (loader) loader.classList.remove('hidden');
 
-            // Reading existing JSON to preserve mapping if re-rendering
-            const existingMappingRaw = document.getElementById('fieldMappingJson').value;
+            try {
+                const response = await fetch('/api/config/database/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, user, password: pass })
+                });
+
+                const result = await response.json();
+                const statusEl = document.getElementById('dbStatus');
+
+                if (statusEl) {
+                    statusEl.innerText = result.message;
+                    statusEl.className = `mt-4 p-4 rounded-xl text-xs font-bold border ${
+                        result.success
+                            ? 'text-green-400 border-green-900 bg-green-900/10'
+                            : 'text-red-400 border-red-900 bg-red-900/10'
+                    }`;
+                    statusEl.classList.remove('hidden');
+                }
+
+                if (result.success) {
+                    await loadDatabaseTables(url, user, pass);
+                }
+            } catch (e) {
+                console.error('Database test error:', e);
+                showToast('❌ Помилка з\'єднання з БД', 'error');
+            } finally {
+                btn.disabled = false;
+                if (btnText) btnText.innerText = 'Test Connection';
+                if (loader) loader.classList.add('hidden');
+            }
+        }
+
+        // ============================================
+        // GOOGLE SHEETS FUNCTIONS
+        // ============================================
+        async function testGoogleConnection() {
+            const btn = document.getElementById('btnTestConn');
+            const btnText = document.getElementById('btnText');
+            const loader = document.getElementById('loader');
+            const path = document.getElementById('serviceAccountKeyPath')?.value;
+            const sheetId = document.getElementById('googleSheetId')?.value;
+
+            if (!path || !sheetId) {
+                showToast(MESSAGES.FILL_ALL_FIELDS, 'warning');
+                return;
+            }
+
+            btn.disabled = true;
+            if (loader) loader.classList.remove('hidden');
+            if (btnText) btnText.innerText = 'Verify...';
+
+            try {
+                const response = await fetch('/api/config/google-sheets/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jsonPath: path, spreadsheetId: sheetId })
+                });
+
+                const result = await response.json();
+
+                updateStatus(
+                    result.message,
+                    result.success
+                        ? "text-green-400 border-green-900 bg-green-900/10"
+                        : "text-red-400 border-red-900 bg-red-900/10"
+                );
+
+                if (result.success) {
+                    toggleSheetSelection(true);
+                    await loadSheetsList();
+
+                    const wrapper = document.getElementById('editModeWrapper');
+                    if (wrapper && !wrapper.classList.contains('hidden')) {
+                        await refreshMapping();
+                    }
+                } else {
+                    toggleSheetSelection(false);
+                }
+            } catch (e) {
+                console.error('Google connection test error:', e);
+                updateStatus("❌ Помилка з'єднання", "text-red-500 bg-red-900/10 border-red-900");
+                toggleSheetSelection(false);
+            } finally {
+                btn.disabled = false;
+                if (loader) loader.classList.add('hidden');
+                if (btnText) btnText.innerText = 'Verify';
+            }
+        }
+
+        async function loadSheetsList() {
+            if (isLoadingSheets) return;
+            isLoadingSheets = true;
+
+            const sheetId = document.getElementById('googleSheetId')?.value;
+            const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
+            const select = document.getElementById('sheetNameSelect');
+            const btn = document.getElementById('btnLoadSheets');
+            const btnText = document.getElementById('btnLoadSheetsText');
+
+            if (!sheetId || !keyPath) {
+                showToast(MESSAGES.SPECIFY_CREDENTIALS, 'warning');
+                isLoadingSheets = false;
+                return;
+            }
+
+            btn.disabled = true;
+            if (btnText) btnText.innerHTML = '<div class="spinner w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>';
+            if (select) select.innerHTML = `<option value="">${MESSAGES.LOADING}</option>`;
+
+            try {
+                const response = await fetch(
+                    `/api/config/google-sheets/list?sheetId=${encodeURIComponent(sheetId)}&keyPath=${encodeURIComponent(keyPath)}`
+                );
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+
+                if (data.success && data.sheets && select) {
+                    select.innerHTML = `<option value="">${MESSAGES.DEFAULT_SHEET}</option>`;
+
+                    data.sheets.forEach(sheet => {
+                        const opt = document.createElement('option');
+                        opt.value = sheet;
+                        opt.innerText = sheet;
+                        select.appendChild(opt);
+                    });
+
+                    const savedSheet = /*[[${config.sheetName}]]*/ null;
+                    if (savedSheet) select.value = savedSheet;
+
+                    showToast(`✅ Знайдено ${data.sheets.length} аркушів`, 'success');
+                } else {
+                    throw new Error(data.error || 'Невідома помилка');
+                }
+            } catch (e) {
+                console.error('Error loading sheets:', e);
+                if (select) select.innerHTML = `<option value="">${MESSAGES.LOADING_ERROR}</option>`;
+                showToast('❌ ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                if (btnText) btnText.innerText = '🔄';
+                isLoadingSheets = false;
+            }
+        }
+
+        function handleSheetChange() {
+            const wrapper = document.getElementById('editModeWrapper');
+            if (wrapper && !wrapper.classList.contains('hidden')) {
+                refreshMapping();
+            }
+        }
+
+        function toggleSheetSelection(show) {
+            const block = document.getElementById('sheetSelectionBlock');
+            if (block) {
+                if (show) {
+                    block.classList.remove('hidden');
+                } else {
+                    block.classList.add('hidden');
+                }
+            }
+        }
+
+        // ============================================
+        // FIELD MAPPING FUNCTIONS
+        // ============================================
+        async function refreshMapping() {
+            if (isRefreshingMapping) return;
+            isRefreshingMapping = true;
+
+            const sheetId = document.getElementById('googleSheetId')?.value;
+            const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
+            const sheetName = document.getElementById('sheetNameSelect')?.value || '';
+            const tableName = document.getElementById('tableSelect')?.value;
+            const isCreate = document.getElementById('createNewTable')?.value === 'true';
+            const mappingSection = document.getElementById('mappingSection');
+            const container = document.getElementById('mappingContainer');
+
+            if (!sheetId || !keyPath || (!isCreate && !tableName)) {
+                if (mappingSection) mappingSection.classList.add('hidden');
+                isRefreshingMapping = false;
+                return;
+            }
+
+            if (mappingSection) mappingSection.classList.remove('hidden');
+            if (container) container.innerHTML = `<div class="text-blue-400 animate-pulse text-center p-4">${MESSAGES.LOADING}</div>`;
+
+            // Save existing mapping
+            const existingMappingRaw = document.getElementById('fieldMappingJson')?.value;
             let existingMapping = {};
             if (existingMappingRaw) {
                 try {
                     const parsed = JSON.parse(existingMappingRaw);
                     parsed.forEach(m => existingMapping[m.sourceHeader] = m.targetColumn);
-                } catch(e) {}
+                } catch (e) {
+                    console.error('Error parsing existing mapping:', e);
+                }
             }
 
             try {
-                const hResp = await fetch(`/api/config/google-headers?sheetId=${sheetId}&keyPath=${encodeURIComponent(keyPath)}`);
+                let url = `/api/config/google-headers?sheetId=${encodeURIComponent(sheetId)}&keyPath=${encodeURIComponent(keyPath)}`;
+                if (sheetName) {
+                    url += `&sheetName=${encodeURIComponent(sheetName)}`;
+                }
+
+                const hResp = await fetch(url);
+                if (!hResp.ok) throw new Error(`HTTP ${hResp.status}`);
+
                 const headers = await hResp.json();
+                if (!Array.isArray(headers)) throw new Error('Invalid response format');
 
                 let dbColumns = [];
                 if (!isCreate) {
-                    const dbResp = await fetch(`/api/config/database/columns?tableName=${tableName}&url=${encodeURIComponent(document.getElementById('targetDbUrl').value)}&user=${document.getElementById('targetDbUser').value}&password=${document.getElementById('targetDbPassword').value}`);
-                    dbColumns = await dbResp.json();
+                    const dbUrl = document.getElementById('targetDbUrl')?.value;
+                    const dbUser = document.getElementById('targetDbUser')?.value;
+                    const dbPass = document.getElementById('targetDbPassword')?.value;
+
+                    const dbResp = await fetch(
+                        `/api/config/database/columns?tableName=${encodeURIComponent(tableName)}&url=${encodeURIComponent(dbUrl)}&user=${encodeURIComponent(dbUser)}&password=${encodeURIComponent(dbPass)}`
+                    );
+
+                    if (dbResp.ok) {
+                        dbColumns = await dbResp.json();
+                    }
                 }
 
-                if(container) {
+                if (container) {
                     container.innerHTML = "";
+
                     headers.forEach(header => {
                         const row = document.createElement('div');
                         row.className = "flex items-center gap-4 bg-gray-900/40 p-3 rounded-xl border border-slate-700/50";
 
-                        const savedTarget = existingMapping[header];
+                        const savedTarget = existingMapping[header] || '';
 
                         let targetHtml = isCreate
-                            ? `<input type="text" value="${savedTarget || transliterate(header)}" class="mapping-input flex-1 bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-orange-300" data-source="${header}">`
-                            : `<select class="mapping-input flex-1 bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-green-300" data-source="${header}">
+                            ? `<input type="text" value="${escapeHtml(savedTarget || transliterate(header))}"
+                                      class="mapping-input flex-1 bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-orange-300"
+                                      data-source="${escapeHtml(header)}"
+                                      placeholder="назва_колонки">`
+                            : `<select class="mapping-input flex-1 bg-gray-800 border-none rounded-lg px-3 py-1.5 text-xs text-green-300"
+                                       data-source="${escapeHtml(header)}">
                                 <option value="">-- Пропустити --</option>
-                                ${dbColumns.map(col => `<option value="${col}" ${savedTarget === col ? 'selected' : ''}>${col}</option>`).join('')}
+                                ${dbColumns.map(col =>
+                                `<option value="${escapeHtml(col)}" ${savedTarget === col ? 'selected' : ''}>${escapeHtml(col)}</option>`
+                            ).join('')}
                             </select>`;
 
-                        row.innerHTML = `<div class="w-1/3 text-xs text-slate-400 truncate" title="${header}">${header}</div><div class="text-slate-700">➔</div>` + targetHtml;
+                        row.innerHTML = `
+                            <div class="w-1/3 text-xs text-slate-400 truncate" title="${escapeHtml(header)}">${escapeHtml(header)}</div>
+                            <div class="text-slate-700">➔</div>
+                            ${targetHtml}
+                        `;
+
                         container.appendChild(row);
                     });
 
-                    container.querySelectorAll('.mapping-input').forEach(el => el.addEventListener('change', updateMappingJson));
+                    container.querySelectorAll('.mapping-input').forEach(el =>
+                        el.addEventListener('change', updateMappingJson)
+                    );
+
                     updateMappingJson();
                 }
             } catch (e) {
-                if(container) container.innerHTML = '<div class="text-red-500 text-center">Помилка завантаження структури</div>';
+                console.error('Error refreshing mapping:', e);
+                if (container) {
+                    container.innerHTML = '<div class="text-red-500 text-center p-4">❌ Помилка завантаження структури</div>';
+                }
+            } finally {
+                isRefreshingMapping = false;
             }
         }
 
@@ -329,26 +663,32 @@
             const mappings = [];
             document.querySelectorAll('.mapping-input').forEach(el => {
                 if (el.value) {
-                    mappings.push({ sourceHeader: el.getAttribute('data-source'), targetColumn: el.value });
+                    mappings.push({
+                        sourceHeader: el.getAttribute('data-source'),
+                        targetColumn: el.value
+                    });
                 }
             });
             const jsonField = document.getElementById('fieldMappingJson');
-            if(jsonField) jsonField.value = JSON.stringify(mappings);
+            if (jsonField) jsonField.value = JSON.stringify(mappings);
         }
 
+        // ============================================
+        // TABLE MODE MANAGEMENT
+        // ============================================
         function setTableMode(isCreate) {
             const input = document.getElementById('createNewTable');
-            if(input) input.value = isCreate;
+            if (input) input.value = isCreate;
 
             const selCont = document.getElementById('selectContainer');
             const creCont = document.getElementById('createContainer');
-            if(selCont) selCont.classList.toggle('hidden', isCreate);
-            if(creCont) creCont.classList.toggle('hidden', !isCreate);
+            if (selCont) selCont.classList.toggle('hidden', isCreate);
+            if (creCont) creCont.classList.toggle('hidden', !isCreate);
 
             const btnCreate = document.getElementById('modeCreate');
             const btnSelect = document.getElementById('modeSelect');
 
-            if(btnCreate && btnSelect) {
+            if (btnCreate && btnSelect) {
                 if (isCreate) {
                     btnCreate.className = "px-6 py-2 rounded-lg text-sm font-bold bg-purple-600 text-white shadow-lg";
                     btnSelect.className = "px-6 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white";
@@ -357,25 +697,20 @@
                     btnCreate.className = "px-6 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white";
                 }
             }
-            // Викликаємо оновлення тільки якщо ми вже в режимі редагування (інакше це може бути зайвим при старті)
+
             const wrapper = document.getElementById('editModeWrapper');
             if (wrapper && !wrapper.classList.contains('hidden')) {
                 refreshMapping();
             }
         }
 
-        function transliterate(word) {
-            const ua = {"а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","є":"ye","ж":"zh","з":"z","и":"y","і":"i","ї":"yi","й":"y","к":"k","л":"l","м":"m","н":"n","о":"o","п":"p","р":"r","с":"s","т":"t","у":"u","ф":"f","х":"kh","ц":"ts","ч":"ch","ш":"sh","щ":"shch","ь":"","ю":"yu","я":"ya"};
-            return word.toLowerCase().split('').map(char => ua[char] || char).join('').replace(/[^a-z0-9_]/g, '_').replace(/_{2,}/g, '_');
-        }
-
         function syncTableName(value) {
             const sanitized = value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
             const input = document.getElementById('newTableNameInput');
-            if(input) input.value = sanitized;
+            if (input) input.value = sanitized;
 
             const select = document.getElementById('tableSelect');
-            if(select) {
+            if (select) {
                 let opt = select.querySelector('option[data-temp="true"]');
                 if (!opt) {
                     opt = document.createElement('option');
@@ -389,93 +724,192 @@
             updateMappingJson();
         }
 
-        // --- UI HELPER FUNCTIONS ---
+        // ============================================
+        // FILE BROWSER
+        // ============================================
+        async function openFileBrowser() {
+            const modal = document.getElementById('fileModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                await loadPath('');
+            }
+        }
+
+        async function loadPath(path) {
+            const list = document.getElementById('fileList');
+            const breadcrumbs = document.getElementById('fileBreadcrumbs');
+
+            if (!list) return;
+
+            list.innerHTML = `<div class="text-center py-8 text-slate-400">${MESSAGES.LOADING}</div>`;
+
+            try {
+                const response = await fetch(`/api/files/list?path=${encodeURIComponent(path || '')}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    list.innerHTML = `<div class="text-red-400 p-4">${escapeHtml(data.error)}</div>`;
+                    return;
+                }
+
+                if (breadcrumbs) {
+                    breadcrumbs.innerText = data.currentPath || 'Мій комп\'ютер';
+                }
+
+                let html = '';
+                if (data.parentPath) {
+                    html += `
+                        <div onclick="loadPath('${escapeHtml(data.parentPath)}')"
+                             class="p-3 hover:bg-gray-700 rounded-lg cursor-pointer flex items-center gap-3 transition-colors">
+                            <span class="text-2xl">⬆️</span>
+                            <span class="text-slate-300">.. (назад)</span>
+                        </div>
+                    `;
+                }
+
+                data.items.forEach(item => {
+                    const icon = item.isDirectory ? '📁' : '📄';
+                    const clickHandler = item.isDirectory
+                        ? `loadPath('${escapeHtml(item.absolutePath)}')`
+                        : `selectFile('${escapeHtml(item.absolutePath)}')`;
+
+                    html += `
+                        <div onclick="${clickHandler}"
+                             class="p-3 hover:bg-gray-700 rounded-lg cursor-pointer flex items-center gap-3 transition-colors">
+                            <span class="text-2xl">${icon}</span>
+                            <span class="text-slate-300 truncate">${escapeHtml(item.name)}</span>
+                        </div>
+                    `;
+                });
+
+                list.innerHTML = html || '<div class="text-slate-500 italic p-4">Порожня папка</div>';
+
+            } catch (e) {
+                console.error('File browser error:', e);
+                list.innerHTML = `<div class="text-red-400 p-4">Помилка: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        async function selectFile(path) {
+            if (!path.toLowerCase().endsWith('.json')) {
+                showToast(MESSAGES.SELECT_JSON, 'warning');
+                return;
+            }
+
+            const input = document.getElementById('serviceAccountKeyPath');
+            if (input) input.value = path;
+
+            try {
+                const response = await fetch(`/api/files/get-email?path=${encodeURIComponent(path)}`);
+                const data = await response.json();
+                if (data.email) {
+                    showToast(`✅ Обрано: ${data.email}`, 'success');
+                }
+            } catch (e) {
+                console.warn('Could not read email:', e);
+            }
+
+            closeFileBrowser();
+        }
+
+        function closeFileBrowser() {
+            const modal = document.getElementById('fileModal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        // ============================================
+        // FORM VALIDATION
+        // ============================================
+        function validateForm() {
+            const sheetId = document.getElementById('googleSheetId')?.value;
+            const keyPath = document.getElementById('serviceAccountKeyPath')?.value;
+            const dbUrl = document.getElementById('targetDbUrl')?.value;
+            const tableName = document.getElementById('tableSelect')?.value;
+            const mapping = document.getElementById('fieldMappingJson')?.value;
+
+            if (!sheetId || !keyPath) {
+                showToast('❌ Заповніть Google Sheets налаштування', 'error');
+                return false;
+            }
+
+            if (!dbUrl) {
+                showToast('❌ Вкажіть з\'єднання з БД', 'error');
+                return false;
+            }
+
+            if (!tableName) {
+                showToast('❌ Оберіть або створіть таблицю', 'error');
+                return false;
+            }
+
+            try {
+                const mappings = JSON.parse(mapping || '[]');
+                if (mappings.length === 0) {
+                    showToast('❌ Налаштуйте field mapping', 'error');
+                    return false;
+                }
+            } catch (e) {
+                showToast('❌ Помилка в field mapping', 'error');
+                return false;
+            }
+
+            updateMappingJson();
+            return true;
+        }
+
+        // ============================================
+        // UTILITY FUNCTIONS
+        // ============================================
+        function transliterate(word) {
+            const ua = {
+                "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "є": "ye",
+                "ж": "zh", "з": "z", "и": "y", "і": "i", "ї": "yi", "й": "y", "к": "k",
+                "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s",
+                "т": "t", "у": "u", "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh",
+                "щ": "shch", "ь": "", "ю": "yu", "я": "ya"
+            };
+            return word.toLowerCase()
+                .split('')
+                .map(char => ua[char] || char)
+                .join('')
+                .replace(/[^a-z0-9_]/g, '_')
+                .replace(/_{2,}/g, '_');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         function updateStatus(message, classes) {
             const el = document.getElementById('connectionStatus');
             if (el) {
-                el.innerHTML = message;
+                el.innerHTML = escapeHtml(message);
                 el.className = `mt-4 p-4 text-xs font-bold rounded-xl border transition-all ${classes}`;
                 el.classList.remove('hidden');
             }
         }
-        // ... (Функції openFileBrowser, loadPath, selectFile, testGoogleConnection, testDatabaseConnection залишаються як були) ...
-        // Для економії місця я їх не дублюю повністю, але вони мають бути тут.
-        // Якщо потрібно - я можу надати повний файл.
 
-        // --- ПОВТОРЕННЯ ВАЖЛИВИХ ФУНКЦІЙ UI ДЛЯ ПОВНОТИ КАРТИНИ ---
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
 
-        async function openFileBrowser() {
-            const modal = document.getElementById('fileModal');
-            if(modal) {
-                modal.classList.remove('hidden');
-                await loadPath("");
-            }
-        }
+            const colors = {
+                success: 'bg-green-600',
+                error: 'bg-red-600',
+                warning: 'bg-orange-600',
+                info: 'bg-blue-600'
+            };
 
-        // (Додайте решту функцій openFileBrowser, loadPath, testGoogleConnection тощо з попереднього коду, вони не змінювались логічно)
+            toast.className = `fixed bottom-8 right-8 ${colors[type]} text-white px-6 py-3 rounded-xl shadow-2xl z-[100] font-bold animate-in slide-in-from-bottom-4`;
+            toast.innerText = message;
 
-        async function testGoogleConnection() {
-            const btn = document.getElementById('btnTestConn');
-            const btnText = document.getElementById('btnText');
-            const loader = document.getElementById('loader');
-            if (!btn || !btnText) return;
+            document.body.appendChild(toast);
 
-            const path = document.getElementById('serviceAccountKeyPath').value;
-            const sheetId = document.getElementById('googleSheetId').value;
-
-            btn.disabled = true;
-            if (loader) loader.classList.remove('hidden');
-            btnText.innerText = 'Verify...';
-
-            try {
-                const response = await fetch('/api/config/google-sheets/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ jsonPath: path, spreadsheetId: sheetId })
-                });
-                const result = await response.json();
-                updateStatus(result.message, result.success ? "text-green-400 border-green-900 bg-green-900/10" : "text-red-400 border-red-900 bg-red-900/10");
-                // Якщо ми в режимі редагування - оновлюємо мапінг
-                const wrapper = document.getElementById('editModeWrapper');
-                if (result.success && wrapper && !wrapper.classList.contains('hidden')) refreshMapping();
-            } catch (e) { updateStatus("❌ Server error", "text-red-500 bg-red-900/10 border-red-900"); }
-            finally {
-                btn.disabled = false;
-                if (loader) loader.classList.add('hidden');
-                btnText.innerText = 'Verify';
-            }
-        }
-
-        async function testDatabaseConnection() {
-            const btn = document.getElementById('btnTestDb');
-            const btnText = document.getElementById('btnDbText');
-            const loader = document.getElementById('dbLoader');
-            const url = document.getElementById('targetDbUrl').value;
-            const user = document.getElementById('targetDbUser').value;
-            const pass = document.getElementById('targetDbPassword').value;
-
-            if (btnText) btnText.innerText = 'Connecting...';
-            if (loader) loader.classList.remove('hidden');
-
-            try {
-                const response = await fetch('/api/config/database/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, user, password: pass })
-                });
-                const result = await response.json();
-                const statusEl = document.getElementById('dbStatus');
-                if (statusEl) {
-                    statusEl.innerText = result.message;
-                    statusEl.className = `mt-4 p-4 rounded-xl text-xs font-bold border ${result.success ? 'text-green-400 border-green-900 bg-green-900/10' : 'text-red-400 border-red-900 bg-red-900/10'}`;
-                    statusEl.classList.remove('hidden');
-                }
-                // Оновлюємо таблиці (навіть якщо ми в режимі View - це підготує дані на випадок переключення)
-                if (result.success) await loadDatabaseTables(url, user, pass);
-            } finally {
-                if (btnText) btnText.innerText = 'Test Connection';
-                if (loader) loader.classList.add('hidden');
-            }
+            setTimeout(() => {
+                toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
         }
     </script>
 </div>
