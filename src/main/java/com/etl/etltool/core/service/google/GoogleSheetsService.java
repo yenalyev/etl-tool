@@ -26,12 +26,10 @@ public class GoogleSheetsService {
 
     private static final String APPLICATION_NAME = "ETL-Tool";
     private static final GsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
-
-    // ✅ ВИПРАВЛЕНО: Читає ВСІ рядки замість тільки 1000
-    private static final String DEFAULT_RANGE = "A:ZZ"; // Було: "A1:Z1000" ❌
+    private static final String DEFAULT_RANGE = "A:ZZ";
 
     // ✅ ОПТИМІЗОВАНО: Збільшено з 5 до 8 для кращої продуктивності
-    private final Semaphore apiRateLimiter = new Semaphore(8); // Було: 5
+    private final Semaphore apiRateLimiter = new Semaphore(8);
 
     /**
      * ✅ Читає ВСІ дані з Google Sheets (без обмеження по рядках)
