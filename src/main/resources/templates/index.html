@@ -106,6 +106,8 @@
     <script th:inline="javascript">
         // Зберігаємо активні з'єднання SSE, щоб керувати ними
         const activeConnections = {};
+        // Глобальна змінна для відстеження approval state
+        const approvalStates = {};
 
         async function toggleRun(taskId) {
             const terminalBox = document.getElementById(`terminal-box-${taskId}`);
@@ -148,6 +150,9 @@
             }
         }
 
+        /**
+         * Оновлена версія connectSSE з підтримкою approval
+         */
         function connectSSE(taskId) {
             // Закриваємо старе з'єднання якщо було
             if (activeConnections[taskId]) {
@@ -163,6 +168,12 @@
             // LOG EVENT
             eventSource.addEventListener('log', (e) => {
                 appendLog(taskId, e.data);
+
+                // ✨ НОВИЙ: Детекція approval messages
+                if (e.data.includes('Очікування вашого рішення') ||
+                    e.data.includes('Натисніть')) {
+                    showApprovalButtons(taskId);
+                }
             });
 
             // PROGRESS EVENT
@@ -171,17 +182,30 @@
                 updateStatusBadge(taskId, 'RUNNING', 'green', true);
             });
 
-            // HISTORY EVENT (при відкритті вже запущеної задачі)
+            // ✨ НОВИЙ: APPROVAL_REQUIRED EVENT
+            eventSource.addEventListener('approval_required', (e) => {
+                const validationData = JSON.parse(e.data);
+                approvalStates[taskId] = validationData;
+
+                updateStatusBadge(taskId, 'AWAITING APPROVAL', 'yellow', true);
+                showApprovalButtons(taskId);
+            });
+
+            // HISTORY EVENT
             eventSource.addEventListener('history', (e) => {
                 const state = JSON.parse(e.data);
-                logsContainer.innerHTML = ''; // Clear init msg
+                logsContainer.innerHTML = '';
                 rowCounter.innerText = state.rowsProcessed;
 
                 if (state.logs) {
                     state.logs.forEach(line => appendLog(taskId, line));
                 }
 
-                if (!state.running) {
+                // ✨ НОВИЙ: Перевірка approval state
+                if (state.waitingForApproval) {
+                    showApprovalButtons(taskId);
+                    updateStatusBadge(taskId, 'AWAITING APPROVAL', 'yellow', true);
+                } else if (!state.running) {
                     handleFinish(taskId, state.success);
                     eventSource.close();
                     delete activeConnections[taskId];
@@ -205,10 +229,15 @@
             };
         }
 
+        /**
+         * ОНОВЛЕНА версія handleFinish з видаленням approval кнопок
+         */
         function handleFinish(taskId, success) {
             const btnRun = document.getElementById(`btn-run-${taskId}`);
             const btnStop = document.getElementById(`btn-stop-${taskId}`);
 
+            // Приховуємо approval кнопки якщо вони були
+            hideApprovalButtons(taskId);
 
             // Показуємо кнопку RUN, ховаємо STOP
             btnRun.classList.remove('hidden');
@@ -319,6 +348,103 @@
                 appendLog(taskId, `❌ Network error: ${e.message}`, 'text-red-500');
                 btnStop.disabled = false;
                 btnStop.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+
+        /**
+         * ✨ НОВИЙ: Показати кнопки Continue/Cancel для approval
+         */
+        function showApprovalButtons(taskId) {
+            const terminalBox = document.getElementById(`terminal-box-${taskId}`);
+            let approvalControls = document.getElementById(`approval-controls-${taskId}`);
+
+            // Якщо контролів ще немає - створюємо
+            if (!approvalControls) {
+                approvalControls = document.createElement('div');
+                approvalControls.id = `approval-controls-${taskId}`;
+                approvalControls.className = "flex items-center justify-center gap-4 p-4 bg-slate-900/80 border-t border-slate-700";
+
+                approvalControls.innerHTML = `
+            <div class="flex items-center gap-4">
+                <button onclick="approveImport(${taskId})"
+                        class="px-8 py-3 bg-green-600 hover:bg-green-500 text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 flex items-center gap-2">
+                    ✅ Continue Import
+                </button>
+                <button onclick="rejectImport(${taskId})"
+                        class="px-8 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 flex items-center gap-2">
+                    ❌ Cancel Import
+                </button>
+            </div>
+        `;
+
+                terminalBox.appendChild(approvalControls);
+            } else {
+                // Якщо контролі вже є - показуємо їх
+                approvalControls.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * ✨ НОВИЙ: Приховати кнопки approval
+         */
+        function hideApprovalButtons(taskId) {
+            const approvalControls = document.getElementById(`approval-controls-${taskId}`);
+            if (approvalControls) {
+                approvalControls.classList.add('hidden');
+            }
+        }
+
+        /**
+         * ✨ НОВИЙ: Підтвердити імпорт
+         */
+        async function approveImport(taskId) {
+            appendLog(taskId, "✅ Імпорт підтверджено, запуск...", "text-green-500 font-bold");
+            hideApprovalButtons(taskId);
+            updateStatusBadge(taskId, 'STARTING', 'blue', true);
+
+            try {
+                const response = await fetch(`/api/sync/approve/${taskId}`, { method: 'POST' });
+                const result = await response.json();
+
+                if (response.ok) {
+                    appendLog(taskId, "🚀 " + result.message, "text-blue-500");
+                } else {
+                    appendLog(taskId, "❌ " + (result.error || 'Failed to approve'), "text-red-500");
+                    handleFinish(taskId, false);
+                }
+            } catch (e) {
+                console.error(e);
+                appendLog(taskId, `❌ Network error: ${e.message}`, "text-red-500");
+                handleFinish(taskId, false);
+            }
+        }
+
+        /**
+         * ✨ НОВИЙ: Відхилити імпорт
+         */
+        async function rejectImport(taskId) {
+            if (!confirm('Ви впевнені що хочете скасувати імпорт?')) {
+                return;
+            }
+
+            appendLog(taskId, "🛑 Імпорт скасовано користувачем", "text-red-500 font-bold");
+            hideApprovalButtons(taskId);
+            updateStatusBadge(taskId, 'CANCELLED', 'red');
+
+            try {
+                const response = await fetch(`/api/sync/reject/${taskId}`, { method: 'POST' });
+                const result = await response.json();
+
+                if (response.ok) {
+                    appendLog(taskId, "✅ " + result.message, "text-slate-500");
+                    handleFinish(taskId, false);
+                } else {
+                    appendLog(taskId, "❌ " + (result.error || 'Failed to reject'), "text-red-500");
+                }
+            } catch (e) {
+                console.error(e);
+                appendLog(taskId, `❌ Network error: ${e.message}`, "text-red-500");
             }
         }
     </script>

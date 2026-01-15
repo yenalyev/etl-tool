@@ -3,6 +3,10 @@ package com.etl.etltool.core.service;
 import com.etl.etltool.config.DataSourceManager;
 import com.etl.etltool.core.entity.AppConfig;
 import com.etl.etltool.core.entity.SyncTask;
+import com.etl.etltool.core.entity.TaskExecutionHistory;
+import com.etl.etltool.core.service.google.GoogleSheetsService;
+import com.etl.etltool.dto.RowChange;
+import com.etl.etltool.dto.ValidationResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.*;
@@ -22,13 +26,15 @@ import java.sql.SQLException;
 import java.util.List;
 
 /**
- * ✅ Сервіс для запуску Spring Batch jobs з Pre-Flight Validation
+ * ✅ Сервіс для запуску Spring Batch jobs з валідацією даних та approval
  *
- * Основні можливості:
- * - Перевірка підключення до БД ПЕРЕД запуском job
- * - Закриття SSE перед повторним запуском
- * - Graceful stop через JobOperator
- * - Детальне логування в SSE
+ * НОВИЙ WORKFLOW:
+ * 1. Завантаження даних з Google Sheets
+ * 2. Збереження CSV snapshot
+ * 3. Валідація та порівняння з попередніми даними
+ * 4. Якщо зміни виявлені → очікування approval від користувача
+ * 5. Після approval → запуск Spring Batch job
+ * 6. Збереження результату в історію
  */
 @Service
 @RequiredArgsConstructor
@@ -42,16 +48,22 @@ public class BatchSyncService {
     private final TaskExecutionManager executionManager;
     private final JobExplorer jobExplorer;
     private final JobOperator jobOperator;
-    private final DataSourceManager dataSourceManager; // ✅ ДОДАНО для pre-flight validation
+    private final DataSourceManager dataSourceManager;
+    private final GoogleSheetsService googleSheetsService;
+    private final CsvStorageService csvStorageService;
+    private final DataValidationService dataValidationService;
+    private final TaskExecutionHistoryService historyService;
 
     /**
-     * ✅ Запуск однієї задачі асинхронно з Pre-Flight Validation
+     * Запуск задачі з валідацією даних
      *
-     * Послідовність:
-     * 1. Закриття старих SSE з'єднань
-     * 2. Завантаження конфігурації
-     * 3. ✨ PRE-FLIGHT VALIDATION (перевірка БД)
-     * 4. Запуск Spring Batch Job
+     * workflow включає:
+     * 1. Pre-flight validation (БД, конфігурація)
+     * 2. Завантаження даних з Google Sheets
+     * 3. Збереження CSV snapshot
+     * 4. Валідація та порівняння
+     * 5. Якщо потрібен approval → очікування
+     * 6. Запуск batch job
      */
     @Async("etlTaskExecutor")
     public void runTaskAsync(Long taskId) {
@@ -60,104 +72,149 @@ public class BatchSyncService {
         log.info("🚀 Starting async task {} on thread: {}", taskId, threadName);
         log.info("═══════════════════════════════════════════════════════");
 
+        TaskExecutionHistory historyRecord = null;
+
         try {
             // ═══════════════════════════════════════════════════════════
             // КРОК 1: Підготовка
             // ═══════════════════════════════════════════════════════════
 
-            // Закриваємо старі SSE з'єднання перед запуском
             executionManager.closeEmitter(taskId);
-
             executionManager.log(taskId, "🔄 Підготовка до запуску (Потік: " + threadName + ")");
 
-            // Завантажуємо конфігурацію
             AppConfig globalConfig = configService.getConfig();
             SyncTask task = taskService.getTask(taskId);
 
             // ═══════════════════════════════════════════════════════════
-            // КРОК 2: ✨ PRE-FLIGHT VALIDATION
-            // Перевіряємо всі необхідні умови ПЕРЕД запуском job
+            // КРОК 2: Pre-Flight Validation (БД, конфігурація)
             // ═══════════════════════════════════════════════════════════
 
             executionManager.log(taskId, "🔍 Перевірка підключень...");
 
             try {
                 validatePrerequisites(taskId, task, globalConfig);
-                executionManager.log(taskId, "✅ Всі перевірки пройдено успішно");
-
+                executionManager.log(taskId, "✅ Базова валідація пройдена");
             } catch (PreFlightValidationException e) {
-                // Якщо валідація не пройшла - зупиняємо НЕГАЙНО
-                // Job взагалі не запускається
                 log.error("❌ Pre-flight validation failed for task: {}", taskId);
-                log.error("❌ Reason: {}", e.getMessage());
-
                 executionManager.log(taskId, "❌ " + e.getMessage());
                 executionManager.finish(taskId, false, "Validation failed: " + e.getMessage());
-
-                return; // ← Виходимо з методу, job НЕ запускається
+                return;
             }
 
             // ═══════════════════════════════════════════════════════════
-            // КРОК 3: Запуск Spring Batch Job
+            // КРОК 3: Завантаження даних з Google Sheets
             // ═══════════════════════════════════════════════════════════
 
-            executionManager.log(taskId, "📊 Читання з Google Sheet: " + task.getGoogleSheetId());
-            executionManager.log(taskId, "🗄️ Цільова таблиця: " + task.getTargetTableName());
+            executionManager.log(taskId, "📥 Завантаження даних з Google Sheets...");
 
-            // Створюємо JobParameters з унікальністю
-            JobParameters jobParameters = new JobParametersBuilder()
-                    .addLong("taskId", taskId)
-                    .addString("sheetId", task.getGoogleSheetId())
-                    .addString("sheetName", task.getSheetName() != null ? task.getSheetName() : "")
-                    .addString("keyPath", globalConfig.getServiceAccountKeyPath())
-                    .addString("tableName", task.getTargetTableName())
-                    .addString("mapping", task.getFieldMappingJson())
-                    .addString("createTable", String.valueOf(task.isCreateNewTable()))
-                    .addString("dbUrl", globalConfig.getTargetDbUrl())
-                    .addString("dbUser", globalConfig.getTargetDbUser())
-                    .addString("dbPassword", globalConfig.getTargetDbPassword())
-                    .addLong("timestamp", System.currentTimeMillis())
-                    .addLong("nanoTime", System.nanoTime())
-                    .toJobParameters();
+            List<List<Object>> rawData = googleSheetsService.readSheet(
+                    task.getGoogleSheetId(),
+                    task.getSheetName(),
+                    globalConfig.getServiceAccountKeyPath()
+            );
 
-            log.info("📋 Job parameters created:");
-            log.info("   Task ID: {}", taskId);
-            log.info("   Sheet ID: {}", task.getGoogleSheetId());
-            log.info("   Table: {}", task.getTargetTableName());
-            log.info("   Timestamp: {}", System.currentTimeMillis());
+            if (rawData == null || rawData.isEmpty()) {
+                executionManager.log(taskId, "❌ Google Sheets порожній або недоступний");
+                executionManager.finish(taskId, false, "No data in Google Sheets");
+                return;
+            }
 
-            // Запускаємо Spring Batch Job
-            JobExecution jobExecution = jobLauncher.run(etlJob, jobParameters);
+            executionManager.log(taskId, String.format("✅ Завантажено %d рядків", rawData.size()));
 
-            executionManager.registerJobExecution(taskId, jobExecution);
+            // Перший рядок = заголовки
+            List<String> headers = rawData.get(0).stream()
+                    .map(obj -> obj != null ? obj.toString() : "")
+                    .toList();
 
-            log.info("✅ Job execution started: ID={}, Status={}",
-                    jobExecution.getJobId(),
-                    jobExecution.getStatus());
+            // Решта рядків = дані
+            List<List<Object>> dataRows = rawData.subList(1, rawData.size());
 
-            // Job запущено асинхронно, Spring Batch сам керує life-cycle
-            // Результат обробиться в BatchJobListener
+            // ═══════════════════════════════════════════════════════════
+            // КРОК 4: Збереження CSV snapshot
+            // ═══════════════════════════════════════════════════════════
+
+            executionManager.log(taskId, "💾 Збереження snapshot...");
+
+            String csvPath = csvStorageService.saveCsv(taskId, headers, dataRows);
+            long csvSize = csvStorageService.getStats(taskId).getTotalSizeBytes();
+
+            executionManager.log(taskId, "✅ Snapshot збережено: " + csvPath);
+
+            // ═══════════════════════════════════════════════════════════
+            // КРОК 5: Валідація та порівняння даних
+            // ═══════════════════════════════════════════════════════════
+
+            executionManager.log(taskId, "🔍 Аналіз змін...");
+
+            ValidationResult validation = dataValidationService.validateData(
+                    task, headers, dataRows
+            );
+
+            if (!validation.isValid()) {
+                // Критичні помилки валідації - блокуємо імпорт
+                executionManager.log(taskId, "❌ Критичні помилки валідації:");
+                for (String error : validation.getCriticalErrors()) {
+                    executionManager.log(taskId, "   • " + error);
+                }
+                executionManager.finish(taskId, false, "Validation failed");
+                return;
+            }
+
+            // ═══════════════════════════════════════════════════════════
+            // КРОК 6: Відправка звіту про зміни та очікування approval
+            // ═══════════════════════════════════════════════════════════
+
+            if (validation.isRequiresApproval()) {
+                log.info("📋 Changes detected, sending validation report to user...");
+
+                // Відправляємо детальний звіт через SSE
+                sendValidationReport(taskId, validation);
+
+                // Переводимо задачу в режим очікування approval
+                executionManager.setWaitingForApproval(taskId, validation);
+
+                executionManager.log(taskId, "⏳ Очікування підтвердження від користувача...");
+
+                log.info("Task {} is waiting for user approval", taskId);
+
+                // Виходимо з методу - продовження після approval через approveTask()
+                return;
+            }
+
+            // ═══════════════════════════════════════════════════════════
+            // КРОК 7: Немає змін або це перший запуск - одразу запускаємо job
+            // ═══════════════════════════════════════════════════════════
+
+            executionManager.log(taskId, "✅ Валідація пройшла, запуск імпорту...");
+
+            // Створюємо запис історії
+            historyRecord = historyService.startExecution(
+                    task, csvPath, csvSize,
+                    validation.hasChanges(),
+                    buildChangesJson(validation)
+            );
+
+            // Запускаємо batch job
+            executeJob(taskId, task, globalConfig, historyRecord.getId());
 
         } catch (JobExecutionAlreadyRunningException e) {
             log.error("❌ Job already running for task: {}", taskId);
             executionManager.log(taskId, "⚠️ Задача вже виконується");
             executionManager.finish(taskId, false, "Задача вже виконується");
 
-        } catch (JobRestartException e) {
-            log.error("❌ Job restart failed for task: {}", taskId, e);
-            executionManager.log(taskId, "❌ Помилка перезапуску: " + e.getMessage());
-            executionManager.finish(taskId, false, "Помилка перезапуску: " + e.getMessage());
-
-        } catch (JobInstanceAlreadyCompleteException e) {
-            log.error("❌ Job already completed for task: {} - This should not happen with unique timestamps!", taskId);
-            executionManager.log(taskId, "⚠️ Job вже завершено (можлива проблема з JobRepository)");
-            executionManager.finish(taskId, false, "Задача вже завершена");
-
         } catch (Exception e) {
             log.error("❌ Failed to start job for task: {}", taskId, e);
             executionManager.log(taskId, "❌ Критична помилка: " + e.getClass().getSimpleName());
             executionManager.log(taskId, "💬 " + e.getMessage());
             executionManager.finish(taskId, false, "Помилка запуску: " + e.getMessage());
+
+            // Оновлюємо історію якщо вона була створена
+            if (historyRecord != null) {
+                historyService.finishExecution(
+                        historyRecord.getId(), "FAILED",
+                        null, null, null, e.getMessage(), null
+                );
+            }
 
         } finally {
             log.info("═══════════════════════════════════════════════════════");
@@ -167,13 +224,201 @@ public class BatchSyncService {
     }
 
     /**
-     * ✅ PRE-FLIGHT VALIDATION: Перевірка всіх prerequisites перед запуском job
-     *
-     * Перевіряємо:
-     * 1. Конфігурацію (чи всі поля заповнені)
-     * 2. Підключення до БД (чи доступна база даних)
-     *
-     * @throws PreFlightValidationException якщо щось не так
+     * Підтвердження імпорту користувачем
+     * Викликається з API endpoint після approval
+     */
+    public void approveTask(Long taskId) {
+        log.info("✅ Task {} approved by user, starting import...", taskId);
+
+        try {
+            // Отримуємо validation result зі стану
+            ValidationResult validation = executionManager.getState(taskId).getValidationResult();
+
+            if (validation == null) {
+                log.error("Validation result not found for task: {}", taskId);
+                executionManager.log(taskId, "❌ Помилка: validation result не знайдено");
+                executionManager.finish(taskId, false, "Validation result not found");
+                return;
+            }
+
+            // Завантажуємо конфігурацію
+            AppConfig globalConfig = configService.getConfig();
+            SyncTask task = taskService.getTask(taskId);
+
+            executionManager.log(taskId, "✅ Підтверджено користувачем, запуск імпорту...");
+
+            // Створюємо запис історії
+            TaskExecutionHistory historyRecord = historyService.startExecution(
+                    task,
+                    validation.getCsvPath(),
+                    0L, // Size буде оновлено пізніше
+                    validation.hasChanges(),
+                    buildChangesJson(validation)
+            );
+
+            // Запускаємо batch job
+            executeJob(taskId, task, globalConfig, historyRecord.getId());
+
+        } catch (Exception e) {
+            log.error("Failed to start approved task: {}", taskId, e);
+            executionManager.log(taskId, "❌ Помилка запуску: " + e.getMessage());
+            executionManager.finish(taskId, false, "Помилка: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Відхилення імпорту користувачем
+     */
+    public void rejectTask(Long taskId) {
+        log.info("❌ Task {} rejected by user", taskId);
+
+        executionManager.log(taskId, "🛑 Імпорт скасовано користувачем");
+        executionManager.finish(taskId, false, "Скасовано користувачем");
+    }
+
+    /**
+     * Виконання Spring Batch Job
+     */
+    private void executeJob(
+            Long taskId,
+            SyncTask task,
+            AppConfig globalConfig,
+            Long historyId) throws Exception {
+
+        executionManager.log(taskId, "📊 Читання з Google Sheet: " + task.getGoogleSheetId());
+        executionManager.log(taskId, "🗄️ Цільова таблиця: " + task.getTargetTableName());
+
+        // Створюємо JobParameters з унікальністю
+        JobParameters jobParameters = new JobParametersBuilder()
+                .addLong("taskId", taskId)
+                .addLong("historyId", historyId)
+                .addString("sheetId", task.getGoogleSheetId())
+                .addString("sheetName", task.getSheetName() != null ? task.getSheetName() : "")
+                .addString("keyPath", globalConfig.getServiceAccountKeyPath())
+                .addString("tableName", task.getTargetTableName())
+                .addString("mapping", task.getFieldMappingJson())
+                .addString("createTable", String.valueOf(task.isCreateNewTable()))
+                .addString("dbUrl", globalConfig.getTargetDbUrl())
+                .addString("dbUser", globalConfig.getTargetDbUser())
+                .addString("dbPassword", globalConfig.getTargetDbPassword())
+                .addLong("timestamp", System.currentTimeMillis())
+                .addLong("nanoTime", System.nanoTime())
+                .toJobParameters();
+
+        log.info("📋 Job parameters created");
+
+        // Запускаємо Spring Batch Job
+        JobExecution jobExecution = jobLauncher.run(etlJob, jobParameters);
+        executionManager.registerJobExecution(taskId, jobExecution);
+
+        log.info("✅ Job execution started: ID={}, Status={}",
+                jobExecution.getJobId(), jobExecution.getStatus());
+    }
+
+    /**
+     * Відправка детального звіту про зміни через SSE
+     */
+    private void sendValidationReport(Long taskId, ValidationResult validation) {
+        executionManager.log(taskId, "");
+        executionManager.log(taskId, "╔══════════════════════════════════════════════════════╗");
+        executionManager.log(taskId, "║  📋 ЗВІТ ПРО ЗМІНИ                                  ║");
+        executionManager.log(taskId, "╚══════════════════════════════════════════════════════╝");
+        executionManager.log(taskId, "");
+
+        // Основна інформація
+        if (validation.isFirstRun()) {
+            executionManager.log(taskId, "🆕 Це перший імпорт для цієї задачі");
+            executionManager.log(taskId, String.format("📊 Буде імпортовано: %d рядків", validation.getTotalRows()));
+        } else {
+            executionManager.log(taskId, String.format("📊 Всього рядків: %d", validation.getTotalRows()));
+            executionManager.log(taskId, String.format("   ├─ 🆕 Нових: %d", validation.getNewRows()));
+            executionManager.log(taskId, String.format("   ├─ ✏️ Змінених: %d", validation.getModifiedRows()));
+            executionManager.log(taskId, String.format("   ├─ 🗑️ Видалених: %d", validation.getDeletedRows()));
+            executionManager.log(taskId, String.format("   └─ ✅ Без змін: %d", validation.getUnchangedRows()));
+        }
+
+        executionManager.log(taskId, "");
+
+        // Попередження про структуру
+        if (!validation.getMissingColumns().isEmpty()) {
+            executionManager.log(taskId, "❌ КРИТИЧНО: Відсутні колонки яки ми мапимо:");
+            for (String col : validation.getMissingColumns()) {
+                executionManager.log(taskId, "   • " + col);
+            }
+            executionManager.log(taskId, "");
+        }
+
+        if (!validation.getNewColumns().isEmpty()) {
+            executionManager.log(taskId, "⚠️ Знайдено колонки в Google Sheets яких немає в мапінгу (не аналізуємо):");
+            for (String col : validation.getNewColumns()) {
+                if (col.isEmpty()){
+                    col = "Колонка без заголовку";
+                }
+                executionManager.log(taskId, "   • " + col);
+            }
+            executionManager.log(taskId, "");
+        }
+
+        // Приклади змін
+        if (!validation.getSampleChanges().isEmpty() && !validation.isFirstRun()) {
+            executionManager.log(taskId, "📝 Приклади змін (перші 5):");
+            executionManager.log(taskId, "");
+
+            for (RowChange change : validation.getSampleChanges()) {
+                String typeEmoji = switch (change.getChangeType()) {
+                    case "NEW" -> "🆕";
+                    case "MODIFIED" -> "✏️";
+                    case "DELETED" -> "🗑️";
+                    default -> "•";
+                };
+
+                executionManager.log(taskId, String.format("%s Рядок #%d (%s):",
+                        typeEmoji, change.getRowIndex() + 1, change.getChangeType()));
+
+                // Sample data
+                if (change.getSampleData() != null && !change.getSampleData().isEmpty()) {
+                    for (var entry : change.getSampleData().entrySet()) {
+                        executionManager.log(taskId, String.format("     %s: %s",
+                                entry.getKey(), entry.getValue()));
+                    }
+                }
+
+                executionManager.log(taskId, "");
+            }
+        }
+
+        // Інші попередження
+        if (!validation.getWarnings().isEmpty()) {
+            executionManager.log(taskId, "⚠️ Попередження:");
+            for (String warning : validation.getWarnings()) {
+                executionManager.log(taskId, "   • " + warning);
+            }
+            executionManager.log(taskId, "");
+        }
+
+        executionManager.log(taskId, "╔══════════════════════════════════════════════════════╗");
+        executionManager.log(taskId, "║  ⏳ Очікування вашого рішення...                    ║");
+        executionManager.log(taskId, "║  👉 Натисніть 'Continue' для продовження            ║");
+        executionManager.log(taskId, "║  👉 Натисніть 'Cancel' для скасування               ║");
+        executionManager.log(taskId, "╚══════════════════════════════════════════════════════╝");
+        executionManager.log(taskId, "");
+    }
+
+    /**
+     * Побудова JSON зі змінами для збереження в історію
+     */
+    private String buildChangesJson(ValidationResult validation) {
+        return String.format(
+                "{\"newRows\":%d,\"modifiedRows\":%d,\"deletedRows\":%d,\"unchangedRows\":%d}",
+                validation.getNewRows(),
+                validation.getModifiedRows(),
+                validation.getDeletedRows(),
+                validation.getUnchangedRows()
+        );
+    }
+
+    /**
+     * PRE-FLIGHT VALIDATION: Перевірка prerequisites перед запуском job
      */
     private void validatePrerequisites(Long taskId, SyncTask task, AppConfig config)
             throws PreFlightValidationException {
@@ -181,10 +426,6 @@ public class BatchSyncService {
         log.info("┌─────────────────────────────────────────────────");
         log.info("│ 🔍 PRE-FLIGHT VALIDATION for task: {}", taskId);
         log.info("└─────────────────────────────────────────────────");
-
-        // ═══════════════════════════════════════════════════════════
-        // 1. Перевірка конфігурації
-        // ═══════════════════════════════════════════════════════════
 
         executionManager.log(taskId, "   → Перевірка конфігурації...");
 
@@ -210,29 +451,20 @@ public class BatchSyncService {
 
         log.info("✅ Configuration check passed");
 
-        // ═══════════════════════════════════════════════════════════
-        // 2. Перевірка підключення до БД
-        // ═══════════════════════════════════════════════════════════
-
         executionManager.log(taskId, "   → Перевірка підключення до БД...");
 
         try {
-            // Отримуємо або створюємо DataSource
             DataSource dataSource = dataSourceManager.getDataSource(
                     config.getTargetDbUrl(),
                     config.getTargetDbUser(),
                     config.getTargetDbPassword()
             );
 
-            // Тестуємо з'єднання
             try (Connection conn = dataSource.getConnection()) {
                 if (conn == null || conn.isClosed()) {
-                    throw new PreFlightValidationException(
-                            "❌ Не вдалося отримати з'єднання з БД"
-                    );
+                    throw new PreFlightValidationException("❌ Не вдалося отримати з'єднання з БД");
                 }
 
-                // Отримуємо інформацію про БД
                 String dbProduct = conn.getMetaData().getDatabaseProductName();
                 String dbVersion = conn.getMetaData().getDatabaseProductVersion();
 
@@ -241,30 +473,24 @@ public class BatchSyncService {
 
             } catch (SQLException e) {
                 log.error("❌ Database connection test failed", e);
-                throw new PreFlightValidationException(
-                        "❌ БД недоступна: " + e.getMessage()
-                );
+                throw new PreFlightValidationException("❌ БД недоступна: " + e.getMessage());
             }
 
         } catch (IllegalStateException e) {
-            // Якщо додаток зупиняється під час перевірки
             log.error("❌ Cannot validate - application shutting down", e);
             throw new PreFlightValidationException("❌ Додаток зупиняється");
 
         } catch (RuntimeException e) {
-            // Connection pool creation failed
             log.error("❌ Failed to create connection pool", e);
 
             String errorMsg = e.getMessage();
 
-            // Перевіряємо чи це connection error
             if (errorMsg != null &&
                     (errorMsg.contains("Connection") ||
                             errorMsg.contains("refused") ||
                             errorMsg.contains("Failed to initialize pool") ||
                             errorMsg.contains("postmaster"))) {
 
-                // Формуємо зрозуміле повідомлення для користувача
                 String dbUrl = config.getTargetDbUrl();
                 throw new PreFlightValidationException(
                         "❌ Неможливо підключитися до БД.\n" +
@@ -272,10 +498,7 @@ public class BatchSyncService {
                 );
             }
 
-            // Інша помилка
-            throw new PreFlightValidationException(
-                    "❌ Помилка підключення до БД: " + errorMsg
-            );
+            throw new PreFlightValidationException("❌ Помилка підключення до БД: " + errorMsg);
         }
 
         log.info("✅ Pre-flight validation completed successfully");
@@ -283,7 +506,7 @@ public class BatchSyncService {
     }
 
     /**
-     * ✅ Запуск всіх активних задач
+     * Запуск всіх активних задач
      */
     public void runAllActiveTasks() {
         List<SyncTask> tasks = taskService.getAllActiveTasks();
@@ -302,9 +525,7 @@ public class BatchSyncService {
 
         for (SyncTask task : tasks) {
             try {
-                // Ініціалізуємо статус
                 if (executionManager.initTask(task.getId())) {
-                    // Запускаємо асинхронно
                     runTaskAsync(task.getId());
                     started++;
                 } else {
@@ -322,10 +543,7 @@ public class BatchSyncService {
     }
 
     /**
-     * ✅ Зупинка задачі через JobOperator
-     *
-     * JobOperator - це правильний Spring Batch спосіб зупинки job'ів.
-     * Він забезпечує коректну зміну статусу та оповіщення всіх компонентів.
+     * Зупинка задачі через JobOperator
      */
     public boolean stopTask(Long taskId) {
         log.info("═══════════════════════════════════════════════════════");
@@ -333,7 +551,6 @@ public class BatchSyncService {
         log.info("═══════════════════════════════════════════════════════");
 
         try {
-            // Отримуємо JobExecution з менеджера
             JobExecution jobExecution = executionManager.getJobExecution(taskId);
 
             if (jobExecution == null) {
@@ -347,22 +564,15 @@ public class BatchSyncService {
             if (!jobExecution.isRunning()) {
                 log.warn("⚠️ JobExecution {} is not running (status: {})",
                         executionId, jobExecution.getStatus());
-                executionManager.log(taskId, "⚠️ Задача вже не виконується (Status: " + jobExecution.getStatus() + ")");
+                executionManager.log(taskId, "⚠️ Задача вже не виконується");
                 return false;
             }
 
-            // Логуємо інформацію про зупинку
-            log.info("🛑 Stopping JobExecution:");
-            log.info("   Job Execution ID: {}", executionId);
-            log.info("   Job ID: {}", jobExecution.getJobId());
-            log.info("   Current Status: {}", jobExecution.getStatus());
-            log.info("   Start Time: {}", jobExecution.getStartTime());
+            log.info("🛑 Stopping JobExecution: {}", executionId);
 
-            // Повідомляємо користувача
             executionManager.log(taskId, "🛑 Надіслано команду зупинки...");
             executionManager.log(taskId, "⏳ Очікування завершення поточного chunk...");
 
-            // Використовуємо JobOperator для зупинки
             boolean stopped = jobOperator.stop(executionId);
 
             if (stopped) {
@@ -378,13 +588,11 @@ public class BatchSyncService {
             return stopped;
 
         } catch (NoSuchJobExecutionException e) {
-            // JobExecution не знайдено в JobRepository
             log.error("❌ JobExecution not found for task: {}", taskId, e);
-            executionManager.log(taskId, "❌ Job execution не знайдено в системі");
+            executionManager.log(taskId, "❌ Job execution не знайдено");
             return false;
 
         } catch (org.springframework.batch.core.launch.JobExecutionNotRunningException e) {
-            // Job вже не виконується
             log.warn("⚠️ Job is not running for task: {}", taskId, e);
             executionManager.log(taskId, "⚠️ Job вже зупинився");
             return false;
@@ -397,10 +605,7 @@ public class BatchSyncService {
     }
 
     /**
-     * ✅ Custom Exception для Pre-Flight Validation
-     *
-     * Використовується для сигналізації про проблеми, виявлені
-     * під час перевірки prerequisites перед запуском job
+     * Custom Exception для Pre-Flight Validation
      */
     private static class PreFlightValidationException extends Exception {
         public PreFlightValidationException(String message) {

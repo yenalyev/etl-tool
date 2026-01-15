@@ -2,6 +2,7 @@ package com.etl.etltool.controller;
 
 import com.etl.etltool.core.service.BatchSyncService;
 import com.etl.etltool.core.service.TaskExecutionManager;
+import com.etl.etltool.dto.ValidationResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -139,6 +140,107 @@ public class SyncController {
 
         } catch (Exception e) {
             log.error("❌ Failed to get task status: {}", taskId, e);
+            return ResponseEntity.status(500).body(
+                    Map.of("error", e.getMessage())
+            );
+        }
+    }
+
+    /**
+     * Підтвердження імпорту після перевірки змін
+     */
+    @PostMapping("/approve/{taskId}")
+    public ResponseEntity<?> approveTask(@PathVariable Long taskId) {
+        log.info("📢 API: Approve task request for ID: {}", taskId);
+
+        try {
+            // Перевіряємо чи задача очікує approval
+            if (!executionManager.isWaitingForApproval(taskId)) {
+                return ResponseEntity.status(400).body(
+                        Map.of(
+                                "error", "Task is not waiting for approval",
+                                "taskId", taskId
+                        )
+                );
+            }
+
+            // Скидаємо approval state
+            executionManager.clearApprovalState(taskId);
+
+            // Запускаємо batch job (Spring Batch)
+            batchSyncService.approveTask(taskId);
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Import approved and started",
+                    "taskId", taskId
+            ));
+
+        } catch (Exception e) {
+            log.error("❌ Failed to approve task: {}", taskId, e);
+            return ResponseEntity.status(500).body(
+                    Map.of("error", e.getMessage())
+            );
+        }
+    }
+
+    /**
+     * Відхилення імпорту
+     */
+    @PostMapping("/reject/{taskId}")
+    public ResponseEntity<?> rejectTask(@PathVariable Long taskId) {
+        log.info("📢 API: Reject task request for ID: {}", taskId);
+
+        try {
+            // Перевіряємо чи задача очікує approval
+            if (!executionManager.isWaitingForApproval(taskId)) {
+                return ResponseEntity.status(400).body(
+                        Map.of(
+                                "error", "Task is not waiting for approval",
+                                "taskId", taskId
+                        )
+                );
+            }
+
+            // Скидаємо approval state
+            executionManager.clearApprovalState(taskId);
+
+            // Скасовуємо task
+            batchSyncService.rejectTask(taskId);
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Import rejected and cancelled",
+                    "taskId", taskId
+            ));
+
+        } catch (Exception e) {
+            log.error("❌ Failed to reject task: {}", taskId, e);
+            return ResponseEntity.status(500).body(
+                    Map.of("error", e.getMessage())
+            );
+        }
+    }
+
+    /**
+     * Отримання детальної інформації про зміни
+     * (опціональний endpoint для окремого вікна з деталями)
+     */
+    @GetMapping("/validation/{taskId}")
+    public ResponseEntity<?> getValidationDetails(@PathVariable Long taskId) {
+        log.info("📢 API: Get validation details for task: {}", taskId);
+
+        try {
+            ValidationResult validation = executionManager.getState(taskId).getValidationResult();
+
+            if (validation == null) {
+                return ResponseEntity.status(404).body(
+                        Map.of("error", "Validation result not found")
+                );
+            }
+
+            return ResponseEntity.ok(validation);
+
+        } catch (Exception e) {
+            log.error("❌ Failed to get validation details: {}", taskId, e);
             return ResponseEntity.status(500).body(
                     Map.of("error", e.getMessage())
             );

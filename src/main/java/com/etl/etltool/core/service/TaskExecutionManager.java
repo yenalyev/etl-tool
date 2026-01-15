@@ -1,6 +1,7 @@
 package com.etl.etltool.core.service;
 
 import com.etl.etltool.dto.ExecutionState;
+import com.etl.etltool.dto.ValidationResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,7 @@ public class TaskExecutionManager {
     private final Map<Long, ExecutionState> taskStates = new ConcurrentHashMap<>();
     private final Map<Long, SseEmitter> emitters = new ConcurrentHashMap<>();
     private final Map<Long, org.springframework.batch.core.JobExecution> activeJobExecutions = new ConcurrentHashMap<>();
-
+    //private final Map<Long, ValidationResult> validationResults = new ConcurrentHashMap<>();
 
     /**
      * Підтримка повторних запусків
@@ -77,7 +78,7 @@ public class TaskExecutionManager {
         // Тайм-аут 1 година
         SseEmitter emitter = new SseEmitter(3600000L);
 
-        //  ВИПРАВЛЕНО: Закриваємо старе з'єднання якщо є
+        //  Закриваємо старе з'єднання якщо є
         closeEmitter(taskId);
 
         // Додаємо нове
@@ -252,5 +253,51 @@ public class TaskExecutionManager {
                 "activeEmitters", emitters.size(),
                 "activeJobs", activeJobExecutions.size()
         );
+    }
+
+
+    /**
+     * Встановити стан очікування approval для задачі
+     */
+    public void setWaitingForApproval(Long taskId, ValidationResult validationResult) {
+        ExecutionState state = taskStates.get(taskId);
+        if (state != null) {
+            state.setWaitingForApproval(true);
+            state.setValidationResult(validationResult);
+
+//            // Зберігаємо ValidationResult окремо для швидкого доступу
+//            validationResults.put(taskId, validationResult);
+
+            log.info("✅ Task {} is now waiting for approval", taskId);
+        }
+    }
+
+//    /**
+//     * Отримати ValidationResult для задачі
+//     */
+//    public ValidationResult getValidationResult(Long taskId) {
+//        return validationResults.get(taskId);
+//    }
+
+    /**
+     * Перевірити чи задача очікує approval
+     */
+    public boolean isWaitingForApproval(Long taskId) {
+        ExecutionState state = taskStates.get(taskId);
+        return state != null && state.isWaitingForApproval();
+    }
+
+    /**
+     * Скинути стан approval після прийняття рішення
+     */
+    public void clearApprovalState(Long taskId) {
+        ExecutionState state = taskStates.get(taskId);
+        if (state != null) {
+            state.setWaitingForApproval(false);
+            state.setValidationResult(null);
+        }
+//        validationResults.remove(taskId);
+
+        log.info("✅ Cleared approval state for task: {}", taskId);
     }
 }

@@ -32,9 +32,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DatabaseItemWriter implements ItemWriter<Map<String, Object>> {
 
-    // Прапорець shutdown
-    private static final AtomicBoolean shuttingDown = new AtomicBoolean(false);
-
+    // shutdown flag (one per task)
+    private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
     private final DataSourceManager dataSourceManager;
 
     @Value("#{jobParameters['tableName']}")
@@ -68,11 +67,9 @@ public class DatabaseItemWriter implements ItemWriter<Map<String, Object>> {
      */
     @Override
     public void write(Chunk<? extends Map<String, Object>> chunk) throws Exception {
-        // ✅ ПЕРЕВІРКА: Чи не зупиняється додаток?
+        // 1. Перевірка на shutdown
         if (shuttingDown.get()) {
             log.warn("⚠️ Skipping write - application is shutting down");
-            log.warn("⚠️ Chunk size: {}, would have written {} rows", chunk.size(), chunk.size());
-            // Викидаємо exception щоб Spring Batch коректно обробив
             throw new IllegalStateException("Application shutdown in progress - cannot write data");
         }
 
@@ -84,36 +81,49 @@ public class DatabaseItemWriter implements ItemWriter<Map<String, Object>> {
         log.info("═══════════════════════════════════════════════════════");
 
         try {
-            // ══════════════════════════════════════════════════════
-            // КРОК 1: Ініціалізація DataSource (один раз)
-            // ══════════════════════════════════════════════════════
+            // 2. Ініціалізація DataSource
             if (dataSource == null) {
-                // ✅ ДОДАТКОВА ПЕРЕВІРКА перед створенням DataSource
-                if (shuttingDown.get()) {
-                    throw new IllegalStateException("Cannot initialize DataSource - shutdown in progress");
-                }
-
+                if (shuttingDown.get()) throw new IllegalStateException("Shutdown in progress");
                 log.info("🔧 Initializing DataSource...");
                 dataSource = dataSourceManager.getDataSource(dbUrl, dbUser, dbPassword);
-                log.info("✅ DataSource initialized for: {}", dbUrl);
             }
 
-            // ... решта коду БЕЗ ЗМІН
+            // 3. Парсинг mapping (відновлено)
+            if (mapping == null) {
+                log.info("🔧 Parsing field mapping...");
+                mapping = parseMapping(mappingJson);
+            }
+
+            // 4. Створення таблиці (відновлено)
+            if (Boolean.parseBoolean(createTableStr) && !tableCreated) {
+                log.info("🔧 Creating table if not exists...");
+                createTableIfNeeded();
+                tableCreated = true;
+            }
+
+            // 5. TRUNCATE перед першим chunk (відновлено)
+            if (!tableCleared) {
+                log.info("🗑️ First chunk detected - clearing table before insert");
+                clearTableBeforeInsert();
+                tableCleared = true;
+            }
+
+            // 6. Вставка даних (відновлено)
+            log.info("💾 Inserting chunk data...");
+            insertBatch(chunk.getItems());
+            totalWritten += chunkSize;
 
         } catch (Exception e) {
-            // ✅ ОНОВИТИ: Обробка помилок під час shutdown
             if (shuttingDown.get()) {
-                log.warn("⚠️ Write failed during shutdown (expected behavior)");
-                log.warn("⚠️ Original exception: {}", e.getMessage());
-                // Не прокидаємо exception далі - це нормально під час shutdown
+                log.warn("⚠️ Write failed during shutdown: {}", e.getMessage());
                 return;
             }
-            // Якщо не shutdown - прокидаємо exception як звичайно
+            log.error("❌ Critical error during write: {}", e.getMessage(), e);
             throw e;
         }
 
         log.info("═══════════════════════════════════════════════════════");
-        log.info("🔵 write() END - Written this chunk: {}, Total written: {}", chunkSize, totalWritten);
+        log.info("🔵 write() END - Total written: {}", totalWritten);
         log.info("═══════════════════════════════════════════════════════\n");
     }
 

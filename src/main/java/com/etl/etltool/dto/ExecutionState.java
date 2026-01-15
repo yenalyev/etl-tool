@@ -21,4 +21,9 @@ public class ExecutionState {
     public void addLog(String message) {
         this.logs.add(message);
     }
+
+    // Перевіряємо чи задача очікує approve від користувача
+    private volatile boolean waitingForApproval;
+    private ValidationResult validationResult;
+
 }
