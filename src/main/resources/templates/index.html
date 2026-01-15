@@ -54,11 +54,20 @@
                     </div>
 
                     <div class="flex items-center gap-2">
+                        <!--  КНОПКА RUN -->
                         <button th:onclick="'toggleRun(' + ${task.id} + ')'"
                                 th:id="'btn-run-' + ${task.id}"
                                 title="Запустити"
                                 class="p-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white rounded-lg transition-colors border border-blue-500/30">
                             ▶️ Run
+                        </button>
+
+                        <!--  КНОПКА STOP (спочатку прихована) -->
+                        <button th:onclick="'stopTask(' + ${task.id} + ')'"
+                                th:id="'btn-stop-' + ${task.id}"
+                                title="Зупинити"
+                                class="hidden p-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition-colors border border-red-500/30">
+                            ⏹️ Stop
                         </button>
 
                         <a th:href="@{/task/edit/{id}(id=${task.id})}" title="Редагувати" class="p-2 bg-slate-700/50 text-slate-400 hover:bg-slate-600 hover:text-white rounded-lg transition-colors">
@@ -102,6 +111,8 @@
             const terminalBox = document.getElementById(`terminal-box-${taskId}`);
             const logsContainer = document.getElementById(`terminal-logs-${taskId}`);
             const btnRun = document.getElementById(`btn-run-${taskId}`);
+            const btnStop = document.getElementById(`btn-stop-${taskId}`);
+
 
             // Якщо вже запущено (або відкрито) - нічого не робимо, або можна реалізувати "Stop"
             if (!terminalBox.classList.contains('hidden') && activeConnections[taskId]) {
@@ -122,6 +133,9 @@
                 // 2. Відправляємо команду START
                 const startRes = await fetch(`/api/sync/start/${taskId}`, { method: 'POST' });
                 if (!startRes.ok) throw new Error("Failed to start task");
+                // Показуємо кнопку STOP, ховаємо RUN
+                btnRun.classList.add('hidden');
+                btnStop.classList.remove('hidden');
 
                 // 3. Підключаємо SSE
                 connectSSE(taskId);
@@ -193,6 +207,13 @@
 
         function handleFinish(taskId, success) {
             const btnRun = document.getElementById(`btn-run-${taskId}`);
+            const btnStop = document.getElementById(`btn-stop-${taskId}`);
+
+
+            // Показуємо кнопку RUN, ховаємо STOP
+            btnRun.classList.remove('hidden');
+            btnStop.classList.add('hidden');
+
             btnRun.disabled = false;
             btnRun.classList.remove('opacity-50', 'cursor-not-allowed');
             btnRun.innerText = '↺ Rerun';
@@ -221,17 +242,21 @@
             }
         }
 
+        // ═══════════════════════════════════════════════════════════
+        // logging
+        // ═══════════════════════════════════════════════════════════
+
         function appendLog(taskId, text, colorClass = '') {
             const container = document.getElementById(`terminal-logs-${taskId}`);
             if (!container) return;
 
             const div = document.createElement('div');
 
-            // Стилізація
             if (colorClass) div.className = colorClass;
             else if (text.includes('❌') || text.includes('Error')) div.className = 'text-red-400';
             else if (text.includes('✅')) div.className = 'text-green-400';
             else if (text.includes('🚀')) div.className = 'text-purple-400 font-bold mb-1';
+            else if (text.includes('🛑')) div.className = 'text-yellow-400 font-bold'; // ✅ ДОДАТИ
             else if (text.includes('WARN')) div.className = 'text-yellow-400';
             else div.className = 'text-slate-300 opacity-90';
 
@@ -256,6 +281,45 @@
 
             badge.className = `px-2 py-0.5 rounded text-[10px] uppercase font-bold border transition-all ${colors[color] || colors['slate']} ${pulse ? 'animate-pulse' : ''}`;
             badge.innerText = text;
+        }
+
+
+        // ═══════════════════════════════════════════════════════════
+        // Зупинка задачі
+        // ═══════════════════════════════════════════════════════════
+
+        async function stopTask(taskId) {
+            const btnStop = document.getElementById(`btn-stop-${taskId}`);
+
+            if (!confirm('Ви впевнені що хочете зупинити задачу?')) {
+                return;
+            }
+
+            btnStop.disabled = true;
+            btnStop.classList.add('opacity-50', 'cursor-not-allowed');
+            appendLog(taskId, '🛑 Надсилання команди зупинки...', 'text-yellow-500');
+            updateStatusBadge(taskId, 'STOPPING', 'yellow', true);
+
+            try {
+                const response = await fetch(`/api/sync/stop/${taskId}`, { method: 'POST' });
+                const result = await response.json();
+
+                if (response.ok) {
+                    appendLog(taskId, '✅ ' + result.message, 'text-green-500');
+                    if (result.note) {
+                        appendLog(taskId, '💡 ' + result.note, 'text-blue-400');
+                    }
+                } else {
+                    appendLog(taskId, '❌ ' + (result.error || 'Failed to stop'), 'text-red-500');
+                    btnStop.disabled = false;
+                    btnStop.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            } catch (e) {
+                console.error(e);
+                appendLog(taskId, `❌ Network error: ${e.message}`, 'text-red-500');
+                btnStop.disabled = false;
+                btnStop.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
         }
     </script>
 </div>

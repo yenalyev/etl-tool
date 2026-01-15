@@ -5,7 +5,10 @@ import com.etl.etltool.core.entity.SyncTask;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.*;
+import org.springframework.batch.core.explore.JobExplorer;
 import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.batch.core.launch.JobOperator;
+import org.springframework.batch.core.launch.NoSuchJobExecutionException;
 import org.springframework.batch.core.repository.JobExecutionAlreadyRunningException;
 import org.springframework.batch.core.repository.JobInstanceAlreadyCompleteException;
 import org.springframework.batch.core.repository.JobRestartException;
@@ -15,8 +18,8 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * ✅ Сервіс для запуску Spring Batch jobs
- * ВИПРАВЛЕНО: Додано закриття SSE перед повторним запуском
+ * Сервіс для запуску Spring Batch jobs
+ * Закриття SSE перед повторним запуском
  */
 @Service
 @RequiredArgsConstructor
@@ -28,6 +31,8 @@ public class BatchSyncService {
     private final ConfigService configService;
     private final TaskService taskService;
     private final TaskExecutionManager executionManager;
+    private final JobExplorer jobExplorer;
+    private final JobOperator jobOperator;
 
     /**
      * Запуск однієї задачі асинхронно
@@ -79,6 +84,8 @@ public class BatchSyncService {
 
             // Запускаємо Spring Batch Job
             JobExecution jobExecution = jobLauncher.run(etlJob, jobParameters);
+
+            executionManager.registerJobExecution(taskId, jobExecution);
 
             log.info("✅ Job execution started: ID={}, Status={}",
                     jobExecution.getJobId(),
@@ -152,6 +159,82 @@ public class BatchSyncService {
 
         log.info("📊 Batch start results: {} started, {} skipped", started, skipped);
         log.info("═══════════════════════════════════════════════════════\n");
+    }
+
+    /**
+     * ✅ ВИПРАВЛЕНО: Зупинка задачі через JobOperator
+     *
+     * JobOperator - це правильний Spring Batch спосіб зупинки job'ів.
+     * Він забезпечує коректну зміну статусу та оповіщення всіх компонентів.
+     */
+    public boolean stopTask(Long taskId) {
+        log.info("═══════════════════════════════════════════════════════");
+        log.info("🛑 Stop request for task: {}", taskId);
+        log.info("═══════════════════════════════════════════════════════");
+
+        try {
+            // Отримуємо JobExecution з менеджера
+            JobExecution jobExecution = executionManager.getJobExecution(taskId);
+
+            if (jobExecution == null) {
+                log.warn("⚠️ No active JobExecution found for task: {}", taskId);
+                executionManager.log(taskId, "⚠️ Задача не активна або вже завершена");
+                return false;
+            }
+
+            Long executionId = jobExecution.getId();
+
+            if (!jobExecution.isRunning()) {
+                log.warn("⚠️ JobExecution {} is not running (status: {})",
+                        executionId, jobExecution.getStatus());
+                executionManager.log(taskId, "⚠️ Задача вже не виконується (Status: " + jobExecution.getStatus() + ")");
+                return false;
+            }
+
+            // Логуємо інформацію про зупинку
+            log.info("🛑 Stopping JobExecution:");
+            log.info("   Job Execution ID: {}", executionId);
+            log.info("   Job ID: {}", jobExecution.getJobId());
+            log.info("   Current Status: {}", jobExecution.getStatus());
+            log.info("   Start Time: {}", jobExecution.getStartTime());
+
+            // Повідомляємо користувача
+            executionManager.log(taskId, "🛑 Надіслано команду зупинки...");
+            executionManager.log(taskId, "⏳ Очікування завершення поточного chunk...");
+
+            // ✅ ВИПРАВЛЕННЯ: Використовуємо JobOperator замість jobExecution.stop()
+            // JobOperator.stop() - це офіційний Spring Batch метод зупинки
+            boolean stopped = jobOperator.stop(executionId);
+
+            if (stopped) {
+                log.info("✅ Stop command sent successfully for JobExecution: {}", executionId);
+                executionManager.log(taskId, "✅ Команду зупинки прийнято");
+            } else {
+                log.warn("⚠️ Stop command returned false for JobExecution: {}", executionId);
+                executionManager.log(taskId, "⚠️ Не вдалося надіслати команду зупинки");
+            }
+
+            log.info("═══════════════════════════════════════════════════════\n");
+
+            return stopped;
+
+        } catch (NoSuchJobExecutionException e) {
+            // JobExecution не знайдено в JobRepository
+            log.error("❌ JobExecution not found for task: {}", taskId, e);
+            executionManager.log(taskId, "❌ Job execution не знайдено в системі");
+            return false;
+
+        } catch (org.springframework.batch.core.launch.JobExecutionNotRunningException e) {
+            // Job вже не виконується
+            log.warn("⚠️ Job is not running for task: {}", taskId, e);
+            executionManager.log(taskId, "⚠️ Job вже зупинився");
+            return false;
+
+        } catch (Exception e) {
+            log.error("❌ Failed to stop task: {}", taskId, e);
+            executionManager.log(taskId, "❌ Помилка зупинки: " + e.getMessage());
+            return false;
+        }
     }
 
     /**

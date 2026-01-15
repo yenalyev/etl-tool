@@ -17,9 +17,11 @@ public class TaskExecutionManager {
 
     private final Map<Long, ExecutionState> taskStates = new ConcurrentHashMap<>();
     private final Map<Long, SseEmitter> emitters = new ConcurrentHashMap<>();
+    private final Map<Long, org.springframework.batch.core.JobExecution> activeJobExecutions = new ConcurrentHashMap<>();
+
 
     /**
-     * ✅ ВИПРАВЛЕНО: Підтримка повторних запусків
+     * Підтримка повторних запусків
      *
      * Ініціалізація задачі перед запуском.
      * Повертає true якщо задачу можна запустити, false якщо вона вже виконується.
@@ -40,8 +42,7 @@ public class TaskExecutionManager {
         newState.setStartTime(LocalDateTime.now());
         newState.addLog("⏳ Задача поставлена в чергу...");
 
-        // ✅ КЛЮЧОВЕ ВИПРАВЛЕННЯ: Використовуємо put() замість putIfAbsent()
-        // Це дозволяє замінити старий завершений стан новим
+        // Використовуємо put() замість putIfAbsent() Це дозволяє замінити старий завершений стан новим
         taskStates.put(taskId, newState);
 
         log.info("✅ Task {} initialized successfully. Previous state: {}",
@@ -51,7 +52,7 @@ public class TaskExecutionManager {
     }
 
     /**
-     *  НОВИЙ МЕТОД: Закриття SSE з'єднання перед повторним запуском
+     *  Закриття SSE з'єднання перед повторним запуском
      */
     public void closeEmitter(Long taskId) {
         SseEmitter emitter = emitters.remove(taskId);
@@ -66,7 +67,7 @@ public class TaskExecutionManager {
     }
 
     /**
-     *  НОВИЙ МЕТОД: Отримання поточного стану (для діагностики)
+     *  Отримання поточного стану (для діагностики)
      */
     public ExecutionState getState(Long taskId) {
         return taskStates.get(taskId);
@@ -127,32 +128,6 @@ public class TaskExecutionManager {
         }
     }
 
-    public void finish(Long taskId, boolean success, String message) {
-        ExecutionState state = taskStates.get(taskId);
-        if (state != null) {
-            state.setRunning(false);
-            state.setFinished(true);
-            state.setSuccess(success);
-            state.setEndTime(LocalDateTime.now());
-            state.addLog((success ? "✅ " : "❌ ") + message);
-
-            sendEvent(taskId, "log", (success ? "✅ " : "❌ ") + message);
-            sendEvent(taskId, "finished", success);
-
-            log.info("🏁 Task {} finished: {}", taskId, success ? "SUCCESS" : "FAILED");
-        }
-
-        // Закриваємо з'єднання SSE коректно
-        SseEmitter emitter = emitters.get(taskId);
-        if (emitter != null) {
-            try {
-                Thread.sleep(500);
-                emitter.complete();
-            } catch (Exception ignored) {}
-            emitters.remove(taskId);
-        }
-    }
-
     private void sendEvent(Long taskId, String name, Object data) {
         // Атомарно отримуємо emitter
         SseEmitter emitter = emitters.get(taskId);
@@ -197,7 +172,73 @@ public class TaskExecutionManager {
     }
 
     /**
-     * ✅ НОВИЙ МЕТОД: Статистика для моніторингу
+     * Реєстрація JobExecution після запуску
+     */
+    public void registerJobExecution(Long taskId, org.springframework.batch.core.JobExecution jobExecution) {
+        activeJobExecutions.put(taskId, jobExecution);
+        log.info("✅ Registered JobExecution {} for task {}", jobExecution.getJobId(), taskId);
+    }
+
+    /**
+     * Отримання JobExecution для зупинки
+     */
+    public org.springframework.batch.core.JobExecution getJobExecution(Long taskId) {
+        return activeJobExecutions.get(taskId);
+    }
+
+    /**
+     * Видалення JobExecution після завершення
+     */
+    public void removeJobExecution(Long taskId) {
+        org.springframework.batch.core.JobExecution removed = activeJobExecutions.remove(taskId);
+        if (removed != null) {
+            log.info("🗑️ Removed JobExecution {} for task {}", removed.getJobId(), taskId);
+        }
+    }
+
+    /**
+     * Перевірка чи можна зупинити задачу
+     */
+    public boolean canStopTask(Long taskId) {
+        ExecutionState state = taskStates.get(taskId);
+        if (state == null || !state.isRunning()) {
+            return false;
+        }
+
+        org.springframework.batch.core.JobExecution jobExecution = activeJobExecutions.get(taskId);
+        return jobExecution != null && jobExecution.isRunning();
+    }
+
+    public void finish(Long taskId, boolean success, String message) {
+        ExecutionState state = taskStates.get(taskId);
+        if (state != null) {
+            state.setRunning(false);
+            state.setFinished(true);
+            state.setSuccess(success);
+            state.setEndTime(LocalDateTime.now());
+            state.addLog((success ? "✅ " : "❌ ") + message);
+
+            sendEvent(taskId, "log", (success ? "✅ " : "❌ ") + message);
+            sendEvent(taskId, "finished", success);
+
+            log.info("🏁 Task {} finished: {}", taskId, success ? "SUCCESS" : "FAILED");
+        }
+
+        removeJobExecution(taskId);
+
+        // Закриваємо з'єднання SSE коректно
+        SseEmitter emitter = emitters.get(taskId);
+        if (emitter != null) {
+            try {
+                Thread.sleep(500);
+                emitter.complete();
+            } catch (Exception ignored) {}
+            emitters.remove(taskId);
+        }
+    }
+
+    /**
+     * Статистика для моніторингу
      */
     public Map<String, Object> getStatistics() {
         int total = taskStates.size();
@@ -208,7 +249,8 @@ public class TaskExecutionManager {
                 "totalTasks", total,
                 "runningTasks", running,
                 "finishedTasks", finished,
-                "activeEmitters", emitters.size()
+                "activeEmitters", emitters.size(),
+                "activeJobs", activeJobExecutions.size()
         );
     }
 }

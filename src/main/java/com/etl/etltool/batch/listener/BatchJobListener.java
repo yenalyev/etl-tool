@@ -74,10 +74,43 @@ public class BatchJobListener implements JobExecutionListener {
             executionManager.log(taskId, "❌ Помилка виконання: " + errorMessage);
             executionManager.finish(taskId, false, "Помилка: " + errorMessage);
 
-        } else {
+        } else if (status == BatchStatus.STOPPED) {
+            handleStopped(taskId, jobExecution);}
+
+        else {
             // Інші статуси (STOPPED, ABANDONED)
             executionManager.log(taskId, "⚠️ Job завершено зі статусом: " + status);
             executionManager.finish(taskId, false, "Job status: " + status);
         }
+    }
+
+
+    /**
+     * Обробка зупинки задачі
+     */
+    private void handleStopped(Long taskId, JobExecution jobExecution) {
+        log.info("🛑 Job was stopped for task: {}", taskId);
+
+        // Отримуємо статистику до моменту зупинки
+        long writeCount = jobExecution.getStepExecutions().stream()
+                .mapToLong(step -> step.getWriteCount())
+                .sum();
+
+        long readCount = jobExecution.getStepExecutions().stream()
+                .mapToLong(step -> step.getReadCount())
+                .sum();
+
+        executionManager.updateProgress(taskId, (int) writeCount);
+
+        String message = String.format(
+                "🛑 Задачу зупинено користувачем\n" +
+                        "📊 Оброблено до зупинки:\n" +
+                        "📥 Прочитано: %d рядків\n" +
+                        "💾 Записано: %d рядків",
+                readCount, writeCount
+        );
+
+        executionManager.log(taskId, message);
+        executionManager.finish(taskId, false, "Зупинено користувачем");
     }
 }
