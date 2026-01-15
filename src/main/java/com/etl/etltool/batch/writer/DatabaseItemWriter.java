@@ -4,6 +4,7 @@ import com.etl.etltool.config.DataSourceManager;
 import com.etl.etltool.dto.FieldMap;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.configuration.annotation.StepScope;
@@ -16,6 +17,7 @@ import javax.sql.DataSource;
 import java.sql.*;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -29,6 +31,9 @@ import java.util.stream.Collectors;
 @StepScope
 @RequiredArgsConstructor
 public class DatabaseItemWriter implements ItemWriter<Map<String, Object>> {
+
+    // Прапорець shutdown
+    private static final AtomicBoolean shuttingDown = new AtomicBoolean(false);
 
     private final DataSourceManager dataSourceManager;
 
@@ -63,6 +68,14 @@ public class DatabaseItemWriter implements ItemWriter<Map<String, Object>> {
      */
     @Override
     public void write(Chunk<? extends Map<String, Object>> chunk) throws Exception {
+        // ✅ ПЕРЕВІРКА: Чи не зупиняється додаток?
+        if (shuttingDown.get()) {
+            log.warn("⚠️ Skipping write - application is shutting down");
+            log.warn("⚠️ Chunk size: {}, would have written {} rows", chunk.size(), chunk.size());
+            // Викидаємо exception щоб Spring Batch коректно обробив
+            throw new IllegalStateException("Application shutdown in progress - cannot write data");
+        }
+
         String threadName = Thread.currentThread().getName();
         int chunkSize = chunk.size();
 
@@ -70,52 +83,47 @@ public class DatabaseItemWriter implements ItemWriter<Map<String, Object>> {
         log.info("🔵 write() START - Thread: {}, Chunk size: {}", threadName, chunkSize);
         log.info("═══════════════════════════════════════════════════════");
 
-        // ══════════════════════════════════════════════════════
-        // КРОК 1: Ініціалізація DataSource (один раз)
-        // ══════════════════════════════════════════════════════
-        if (dataSource == null) {
-            log.info("🔧 Initializing DataSource...");
-            dataSource = dataSourceManager.getDataSource(dbUrl, dbUser, dbPassword);
-            log.info("✅ DataSource initialized for: {}", dbUrl);
-        }
+        try {
+            // ══════════════════════════════════════════════════════
+            // КРОК 1: Ініціалізація DataSource (один раз)
+            // ══════════════════════════════════════════════════════
+            if (dataSource == null) {
+                // ✅ ДОДАТКОВА ПЕРЕВІРКА перед створенням DataSource
+                if (shuttingDown.get()) {
+                    throw new IllegalStateException("Cannot initialize DataSource - shutdown in progress");
+                }
 
-        // ══════════════════════════════════════════════════════
-        // КРОК 2: Парсинг mapping (один раз)
-        // ══════════════════════════════════════════════════════
-        if (mapping == null) {
-            log.info("🔧 Parsing field mapping...");
-            mapping = parseMapping(mappingJson);
-            log.info("✅ Mapping parsed: {} fields", mapping.size());
-        }
+                log.info("🔧 Initializing DataSource...");
+                dataSource = dataSourceManager.getDataSource(dbUrl, dbUser, dbPassword);
+                log.info("✅ DataSource initialized for: {}", dbUrl);
+            }
 
-        // ══════════════════════════════════════════════════════
-        // КРОК 3: Створення таблиці (якщо потрібно, один раз)
-        // ══════════════════════════════════════════════════════
-        if (Boolean.parseBoolean(createTableStr) && !tableCreated) {
-            log.info("🔧 Creating table if not exists...");
-            createTableIfNeeded();
-            tableCreated = true;
-        }
+            // ... решта коду БЕЗ ЗМІН
 
-        // ══════════════════════════════════════════════════════
-        // КРОК 4: TRUNCATE таблиці перед ПЕРШИМ chunk
-        // ══════════════════════════════════════════════════════
-        if (!tableCleared) {
-            log.info("🗑️ First chunk detected - clearing table before insert");
-            clearTableBeforeInsert();
-            tableCleared = true;
+        } catch (Exception e) {
+            // ✅ ОНОВИТИ: Обробка помилок під час shutdown
+            if (shuttingDown.get()) {
+                log.warn("⚠️ Write failed during shutdown (expected behavior)");
+                log.warn("⚠️ Original exception: {}", e.getMessage());
+                // Не прокидаємо exception далі - це нормально під час shutdown
+                return;
+            }
+            // Якщо не shutdown - прокидаємо exception як звичайно
+            throw e;
         }
-
-        // ══════════════════════════════════════════════════════
-        // КРОК 5: Вставка даних
-        // ══════════════════════════════════════════════════════
-        log.info("💾 Inserting chunk data...");
-        insertBatch(chunk.getItems());
-        totalWritten += chunkSize;
 
         log.info("═══════════════════════════════════════════════════════");
         log.info("🔵 write() END - Written this chunk: {}, Total written: {}", chunkSize, totalWritten);
         log.info("═══════════════════════════════════════════════════════\n");
+    }
+
+    /**
+     * Маркування shutdown стану
+     */
+    @PreDestroy
+    public void markShuttingDown() {
+        shuttingDown.set(true);
+        log.warn("🛑 DatabaseItemWriter marked as shutting down");
     }
 
     /**

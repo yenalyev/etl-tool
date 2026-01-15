@@ -1,5 +1,6 @@
 package com.etl.etltool.core.service;
 
+import com.etl.etltool.config.DataSourceManager;
 import com.etl.etltool.core.entity.AppConfig;
 import com.etl.etltool.core.entity.SyncTask;
 import lombok.RequiredArgsConstructor;
@@ -15,11 +16,19 @@ import org.springframework.batch.core.repository.JobRestartException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.List;
 
 /**
- * Сервіс для запуску Spring Batch jobs
- * Закриття SSE перед повторним запуском
+ * ✅ Сервіс для запуску Spring Batch jobs з Pre-Flight Validation
+ *
+ * Основні можливості:
+ * - Перевірка підключення до БД ПЕРЕД запуском job
+ * - Закриття SSE перед повторним запуском
+ * - Graceful stop через JobOperator
+ * - Детальне логування в SSE
  */
 @Service
 @RequiredArgsConstructor
@@ -33,9 +42,16 @@ public class BatchSyncService {
     private final TaskExecutionManager executionManager;
     private final JobExplorer jobExplorer;
     private final JobOperator jobOperator;
+    private final DataSourceManager dataSourceManager; // ✅ ДОДАНО для pre-flight validation
 
     /**
-     * Запуск однієї задачі асинхронно
+     * ✅ Запуск однієї задачі асинхронно з Pre-Flight Validation
+     *
+     * Послідовність:
+     * 1. Закриття старих SSE з'єднань
+     * 2. Завантаження конфігурації
+     * 3. ✨ PRE-FLIGHT VALIDATION (перевірка БД)
+     * 4. Запуск Spring Batch Job
      */
     @Async("etlTaskExecutor")
     public void runTaskAsync(Long taskId) {
@@ -45,6 +61,10 @@ public class BatchSyncService {
         log.info("═══════════════════════════════════════════════════════");
 
         try {
+            // ═══════════════════════════════════════════════════════════
+            // КРОК 1: Підготовка
+            // ═══════════════════════════════════════════════════════════
+
             // Закриваємо старі SSE з'єднання перед запуском
             executionManager.closeEmitter(taskId);
 
@@ -54,13 +74,37 @@ public class BatchSyncService {
             AppConfig globalConfig = configService.getConfig();
             SyncTask task = taskService.getTask(taskId);
 
-            // Валідація
-            validateTask(task, globalConfig);
+            // ═══════════════════════════════════════════════════════════
+            // КРОК 2: ✨ PRE-FLIGHT VALIDATION
+            // Перевіряємо всі необхідні умови ПЕРЕД запуском job
+            // ═══════════════════════════════════════════════════════════
+
+            executionManager.log(taskId, "🔍 Перевірка підключень...");
+
+            try {
+                validatePrerequisites(taskId, task, globalConfig);
+                executionManager.log(taskId, "✅ Всі перевірки пройдено успішно");
+
+            } catch (PreFlightValidationException e) {
+                // Якщо валідація не пройшла - зупиняємо НЕГАЙНО
+                // Job взагалі не запускається
+                log.error("❌ Pre-flight validation failed for task: {}", taskId);
+                log.error("❌ Reason: {}", e.getMessage());
+
+                executionManager.log(taskId, "❌ " + e.getMessage());
+                executionManager.finish(taskId, false, "Validation failed: " + e.getMessage());
+
+                return; // ← Виходимо з методу, job НЕ запускається
+            }
+
+            // ═══════════════════════════════════════════════════════════
+            // КРОК 3: Запуск Spring Batch Job
+            // ═══════════════════════════════════════════════════════════
 
             executionManager.log(taskId, "📊 Читання з Google Sheet: " + task.getGoogleSheetId());
             executionManager.log(taskId, "🗄️ Цільова таблиця: " + task.getTargetTableName());
 
-            // Створюємо JobParameters з ДОДАТКОВОЮ унікальністю
+            // Створюємо JobParameters з унікальністю
             JobParameters jobParameters = new JobParametersBuilder()
                     .addLong("taskId", taskId)
                     .addString("sheetId", task.getGoogleSheetId())
@@ -123,7 +167,123 @@ public class BatchSyncService {
     }
 
     /**
-     * Запуск всіх активних задач
+     * ✅ PRE-FLIGHT VALIDATION: Перевірка всіх prerequisites перед запуском job
+     *
+     * Перевіряємо:
+     * 1. Конфігурацію (чи всі поля заповнені)
+     * 2. Підключення до БД (чи доступна база даних)
+     *
+     * @throws PreFlightValidationException якщо щось не так
+     */
+    private void validatePrerequisites(Long taskId, SyncTask task, AppConfig config)
+            throws PreFlightValidationException {
+
+        log.info("┌─────────────────────────────────────────────────");
+        log.info("│ 🔍 PRE-FLIGHT VALIDATION for task: {}", taskId);
+        log.info("└─────────────────────────────────────────────────");
+
+        // ═══════════════════════════════════════════════════════════
+        // 1. Перевірка конфігурації
+        // ═══════════════════════════════════════════════════════════
+
+        executionManager.log(taskId, "   → Перевірка конфігурації...");
+
+        if (config.getServiceAccountKeyPath() == null || config.getServiceAccountKeyPath().isEmpty()) {
+            throw new PreFlightValidationException("❌ Google Service Account key не налаштовано");
+        }
+
+        if (config.getTargetDbUrl() == null || config.getTargetDbUrl().isEmpty()) {
+            throw new PreFlightValidationException("❌ Database URL не налаштовано");
+        }
+
+        if (task.getGoogleSheetId() == null || task.getGoogleSheetId().isEmpty()) {
+            throw new PreFlightValidationException("❌ Google Sheet ID не вказано");
+        }
+
+        if (task.getTargetTableName() == null || task.getTargetTableName().isEmpty()) {
+            throw new PreFlightValidationException("❌ Ім'я цільової таблиці не вказано");
+        }
+
+        if (task.getFieldMappingJson() == null || task.getFieldMappingJson().isEmpty()) {
+            throw new PreFlightValidationException("❌ Field mapping не налаштовано");
+        }
+
+        log.info("✅ Configuration check passed");
+
+        // ═══════════════════════════════════════════════════════════
+        // 2. Перевірка підключення до БД
+        // ═══════════════════════════════════════════════════════════
+
+        executionManager.log(taskId, "   → Перевірка підключення до БД...");
+
+        try {
+            // Отримуємо або створюємо DataSource
+            DataSource dataSource = dataSourceManager.getDataSource(
+                    config.getTargetDbUrl(),
+                    config.getTargetDbUser(),
+                    config.getTargetDbPassword()
+            );
+
+            // Тестуємо з'єднання
+            try (Connection conn = dataSource.getConnection()) {
+                if (conn == null || conn.isClosed()) {
+                    throw new PreFlightValidationException(
+                            "❌ Не вдалося отримати з'єднання з БД"
+                    );
+                }
+
+                // Отримуємо інформацію про БД
+                String dbProduct = conn.getMetaData().getDatabaseProductName();
+                String dbVersion = conn.getMetaData().getDatabaseProductVersion();
+
+                log.info("✅ Database connection OK: {} {}", dbProduct, dbVersion);
+                executionManager.log(taskId, "   ✓ БД доступна: " + dbProduct + " " + dbVersion);
+
+            } catch (SQLException e) {
+                log.error("❌ Database connection test failed", e);
+                throw new PreFlightValidationException(
+                        "❌ БД недоступна: " + e.getMessage()
+                );
+            }
+
+        } catch (IllegalStateException e) {
+            // Якщо додаток зупиняється під час перевірки
+            log.error("❌ Cannot validate - application shutting down", e);
+            throw new PreFlightValidationException("❌ Додаток зупиняється");
+
+        } catch (RuntimeException e) {
+            // Connection pool creation failed
+            log.error("❌ Failed to create connection pool", e);
+
+            String errorMsg = e.getMessage();
+
+            // Перевіряємо чи це connection error
+            if (errorMsg != null &&
+                    (errorMsg.contains("Connection") ||
+                            errorMsg.contains("refused") ||
+                            errorMsg.contains("Failed to initialize pool") ||
+                            errorMsg.contains("postmaster"))) {
+
+                // Формуємо зрозуміле повідомлення для користувача
+                String dbUrl = config.getTargetDbUrl();
+                throw new PreFlightValidationException(
+                        "❌ Неможливо підключитися до БД.\n" +
+                                "   Перевірте що PostgreSQL запущений: " + dbUrl
+                );
+            }
+
+            // Інша помилка
+            throw new PreFlightValidationException(
+                    "❌ Помилка підключення до БД: " + errorMsg
+            );
+        }
+
+        log.info("✅ Pre-flight validation completed successfully");
+        log.info("─────────────────────────────────────────────────\n");
+    }
+
+    /**
+     * ✅ Запуск всіх активних задач
      */
     public void runAllActiveTasks() {
         List<SyncTask> tasks = taskService.getAllActiveTasks();
@@ -162,7 +322,7 @@ public class BatchSyncService {
     }
 
     /**
-     * ✅ ВИПРАВЛЕНО: Зупинка задачі через JobOperator
+     * ✅ Зупинка задачі через JobOperator
      *
      * JobOperator - це правильний Spring Batch спосіб зупинки job'ів.
      * Він забезпечує коректну зміну статусу та оповіщення всіх компонентів.
@@ -202,8 +362,7 @@ public class BatchSyncService {
             executionManager.log(taskId, "🛑 Надіслано команду зупинки...");
             executionManager.log(taskId, "⏳ Очікування завершення поточного chunk...");
 
-            // ✅ ВИПРАВЛЕННЯ: Використовуємо JobOperator замість jobExecution.stop()
-            // JobOperator.stop() - це офіційний Spring Batch метод зупинки
+            // Використовуємо JobOperator для зупинки
             boolean stopped = jobOperator.stop(executionId);
 
             if (stopped) {
@@ -238,31 +397,14 @@ public class BatchSyncService {
     }
 
     /**
-     * Валідація конфігурації перед запуском
+     * ✅ Custom Exception для Pre-Flight Validation
+     *
+     * Використовується для сигналізації про проблеми, виявлені
+     * під час перевірки prerequisites перед запуском job
      */
-    private void validateTask(SyncTask task, AppConfig config) {
-        log.info("🔍 Validating task configuration...");
-
-        if (config.getServiceAccountKeyPath() == null || config.getServiceAccountKeyPath().isEmpty()) {
-            throw new IllegalArgumentException("Google Service Account key path not configured");
+    private static class PreFlightValidationException extends Exception {
+        public PreFlightValidationException(String message) {
+            super(message);
         }
-
-        if (config.getTargetDbUrl() == null || config.getTargetDbUrl().isEmpty()) {
-            throw new IllegalArgumentException("Database URL not configured");
-        }
-
-        if (task.getGoogleSheetId() == null || task.getGoogleSheetId().isEmpty()) {
-            throw new IllegalArgumentException("Google Sheet ID not specified");
-        }
-
-        if (task.getTargetTableName() == null || task.getTargetTableName().isEmpty()) {
-            throw new IllegalArgumentException("Target table name not specified");
-        }
-
-        if (task.getFieldMappingJson() == null || task.getFieldMappingJson().isEmpty()) {
-            throw new IllegalArgumentException("Field mapping not configured");
-        }
-
-        log.info("✅ Task configuration validated successfully");
     }
 }

@@ -14,11 +14,11 @@ public class EtlToolApplication {
         // Створюємо папку для бази даних перед запуском Spring
         createStorageDirectory();
 
-        // ✅ Зберігаємо контекст Spring для доступу до beans
+        // Зберігаємо контекст Spring для доступу до beans
         ConfigurableApplicationContext context = SpringApplication.run(EtlToolApplication.class, args);
 
-        // ✅ Реєструємо shutdown hook для graceful shutdown
-        registerShutdownHook(context);
+//        // Реєструємо shutdown hook для graceful shutdown
+//        registerShutdownHook(context);
     }
 
     /**
