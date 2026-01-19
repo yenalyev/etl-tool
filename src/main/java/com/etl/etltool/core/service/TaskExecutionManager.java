@@ -19,11 +19,9 @@ public class TaskExecutionManager {
     private final Map<Long, ExecutionState> taskStates = new ConcurrentHashMap<>();
     private final Map<Long, SseEmitter> emitters = new ConcurrentHashMap<>();
     private final Map<Long, org.springframework.batch.core.JobExecution> activeJobExecutions = new ConcurrentHashMap<>();
-    //private final Map<Long, ValidationResult> validationResults = new ConcurrentHashMap<>();
 
     /**
      * Підтримка повторних запусків
-     *
      * Ініціалізація задачі перед запуском.
      * Повертає true якщо задачу можна запустити, false якщо вона вже виконується.
      */
@@ -265,19 +263,9 @@ public class TaskExecutionManager {
             state.setWaitingForApproval(true);
             state.setValidationResult(validationResult);
 
-//            // Зберігаємо ValidationResult окремо для швидкого доступу
-//            validationResults.put(taskId, validationResult);
-
             log.info("✅ Task {} is now waiting for approval", taskId);
         }
     }
-
-//    /**
-//     * Отримати ValidationResult для задачі
-//     */
-//    public ValidationResult getValidationResult(Long taskId) {
-//        return validationResults.get(taskId);
-//    }
 
     /**
      * Перевірити чи задача очікує approval
@@ -294,7 +282,8 @@ public class TaskExecutionManager {
         ExecutionState state = taskStates.get(taskId);
         if (state != null) {
             state.setWaitingForApproval(false);
-            state.setValidationResult(null);
+            state.setValidationResult(new ValidationResult());
+            state.setRunning(false);
         }
 //        validationResults.remove(taskId);
 
